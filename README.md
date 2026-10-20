@@ -1,5 +1,7 @@
 # Unfollow X
 
+[English](README.md) | [Türkçe](README.tr.md)
+
 A single-file, paste-into-the-console tool for x.com that scans the accounts you follow, shows the ones that do not follow you back, and lets you unfollow selected accounts from a floating panel with deliberately conservative pacing.
 
 This is an unofficial community tool. It is not affiliated with X Corp. Automating actions on X can violate its Terms of Service and can lead to rate limits, account review, or suspension. Use it at your own risk, preferably on a small scale.
