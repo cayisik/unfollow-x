@@ -225,6 +225,7 @@ export async function runUnfollowQueue({
   let fail = 0;
   let processed = 0;
   let stopped = null;
+  let stopInfo = null;
   const results = [];
 
   const notify = (event) =>
@@ -278,6 +279,7 @@ export async function runUnfollowQueue({
       if (result.stop) {
         outcome = result;
         stopped = result.stop;
+        stopInfo = result;
         break;
       }
       if (result.downgrade) {
@@ -366,6 +368,7 @@ export async function runUnfollowQueue({
     processed,
     remaining: Math.max(0, queue.length - processed),
     stopped,
+    stopInfo,
     transport: currentTransport,
     results,
   };

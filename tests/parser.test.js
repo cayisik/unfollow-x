@@ -185,3 +185,38 @@ test("scan paginates and retries with the captured count", async () => {
   assert.equal(result.sawFollowedBy, true);
   assert.equal(result.unverified, false);
 });
+
+test("a null seed total stays unknown instead of becoming zero", async () => {
+  const template = {
+    url: "https://x.com/i/api/graphql/q/followingQuery",
+    method: "POST",
+    headers: {},
+    variables: { count: 20, screenName: "me" },
+    queryId: "q",
+    operationName: "followingQuery",
+    body: JSON.stringify({
+      variables: { count: 20, screenName: "me" },
+      queryId: "q",
+    }),
+  };
+  const payload = page("alice", null);
+  delete payload.data.user_result_by_screen_name.result.relationship_counts;
+  const result = await scanFollowing({
+    template,
+    handle: "me",
+    csrf: "csrf",
+    seedTotal: null,
+    fetchImpl: async () =>
+      new Response(JSON.stringify(payload), { status: 200 }),
+    sleepFn: async () => {},
+    timings: {
+      usersPerRequest: 50,
+      scanDelayMin: 0,
+      scanDelayMax: 0,
+      scanPauseEveryPages: 0,
+    },
+  });
+  assert.equal(result.total, null);
+  assert.equal(result.users.length, 1);
+  assert.equal(result.stopReason, "cursor");
+});

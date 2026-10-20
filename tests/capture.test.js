@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   installCapture,
+  uninstallCapture,
   getCapturedFollowing,
   resetCapture,
   parseTemplate,
@@ -49,4 +50,29 @@ test("ignores unrelated endpoints", () => {
     parseTemplate({ url: "https://x.com/i/api/1.1/foo.json", method: "GET" }),
     null
   );
+});
+
+test("uninstall restores fetch and clears the captured template", async () => {
+  resetCapture();
+  const original = globalThis.fetch;
+  const fakeFetch = async () => new Response("{}", { status: 200 });
+  try {
+    globalThis.fetch = fakeFetch;
+    installCapture({ fetchImpl: fakeFetch, xhrImpl: null });
+    assert.notEqual(globalThis.fetch, fakeFetch);
+    await globalThis.fetch(
+      "https://x.com/i/api/graphql/abc/Following?variables=%7B%22userId%22%3A%221%22%7D&features=%7B%7D"
+    );
+    assert.ok(getCapturedFollowing());
+
+    uninstallCapture();
+    assert.equal(globalThis.fetch, fakeFetch);
+    assert.equal(getCapturedFollowing(), null);
+
+    installCapture({ fetchImpl: fakeFetch, xhrImpl: null });
+    assert.notEqual(globalThis.fetch, fakeFetch);
+  } finally {
+    uninstallCapture();
+    globalThis.fetch = original;
+  }
 });

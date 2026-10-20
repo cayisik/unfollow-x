@@ -164,6 +164,7 @@ export const CSS = `
 #${APP_ID} .ux-results-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 #${APP_ID} .ux-results-head h2 { font-size: 19px; }
 #${APP_ID} .ux-results-head p { margin-top: 4px; font-size: 11.5px; color: var(--ux-muted); }
+#${APP_ID} .ux-results-links { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
 #${APP_ID} .ux-link { color: var(--ux-accent); font-size: 11.5px; font-weight: 700; padding: 4px 0; white-space: nowrap; }
 #${APP_ID} .ux-link:hover { text-decoration: underline; }
 #${APP_ID} .ux-warning { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; padding: 9px 10px; border-radius: 11px; color: #ffd9a3; background: rgba(255,158,11,.08); border: 1px solid rgba(255,158,11,.2); font-size: 11.5px; line-height: 1.45; }
@@ -535,15 +536,31 @@ export function renderResultsView(state) {
       )}</span></div>`
     );
   }
+  if (state.error) {
+    warnings.push(
+      `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+        state.error
+      )}</span></div>`
+    );
+  }
   return `<section class="ux-view ux-results" data-view="results">
     <div class="ux-results-head">
       <div>
         <h2 data-result-count>${escapeHTML(countLabel(state, t))}</h2>
         <p>${escapeHTML(t("reviewHint"))}</p>
       </div>
-      <button class="ux-link" data-action="rescan">${escapeHTML(
-        t("rescan")
-      )}</button>
+      <div class="ux-results-links">
+        ${
+          state.partial && state.checkpoint
+            ? `<button class="ux-link" data-action="resume">${escapeHTML(
+                t("resumeAfter")
+              )}</button>`
+            : ""
+        }
+        <button class="ux-link" data-action="rescan">${escapeHTML(
+          t("rescan")
+        )}</button>
+      </div>
     </div>
     ${warnings.join("")}
     <label class="ux-search">${ICONS.search}<input data-search value="${escapeAttr(
@@ -669,8 +686,12 @@ function renderScanView(state) {
         t("scanningPage", { page: scan.page || 1, count: scanned })
       )}</span>
     </div>
-    <p class="ux-hint">${escapeHTML(
-      paused ? t("pausedHint") : t("liveHint")
+    <p class="ux-hint" data-scan-hint>${escapeHTML(
+      scan.waiting
+        ? t("captureWait")
+        : paused
+          ? t("pausedHint")
+          : countdownText(state) || t("liveHint")
     )}</p>
     <div class="ux-live-list" data-live-list>${
       users.length
@@ -749,6 +770,7 @@ function renderUnfollowView(state) {
 function renderDoneView(state) {
   const t = makeT(state.language);
   const run = state.unfollow || {};
+  const cooldown = countdownText(state);
   return `<section class="ux-view ux-done" data-view="done">
     <div class="ux-done-icon">${ICONS.check}</div>
     <h2>${escapeHTML(t("unfollowDoneTitle"))}</h2>
@@ -759,6 +781,7 @@ function renderDoneView(state) {
         remaining: Number(run.remaining) || 0,
       })
     )}</p>
+    ${cooldown ? `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(cooldown)}</span></div>` : ""}
     <div class="ux-actions">
       <button class="ux-btn ux-btn-primary" data-action="rescan">${escapeHTML(
         t("rescan")
@@ -1090,6 +1113,8 @@ export function showDialog({
   return { overlay, close };
 }
 
+let toastTimer = null;
+
 export function toast(message) {
   if (!message || typeof document === "undefined") return;
   const host = document.getElementById(APP_ID) || document.body;
@@ -1099,7 +1124,8 @@ export function toast(message) {
   element.setAttribute("role", "status");
   element.textContent = message;
   host.appendChild(element);
-  setTimeout(() => element.remove(), 3500);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => element.remove(), 3500);
 }
 
 export function applyPanelPosition(panel, position) {
@@ -1253,6 +1279,14 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
         page: state.scan?.page || 1,
         count: scanned,
       });
+    }
+    const hint = root.querySelector("[data-scan-hint]");
+    if (hint) {
+      hint.textContent = state.scan?.waiting
+        ? t()("captureWait")
+        : state.paused
+          ? t()("pausedHint")
+          : countdownText(state) || t()("liveHint");
     }
     const list = root.querySelector("[data-live-list]");
     if (list) {
@@ -1512,6 +1546,9 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
       root.removeEventListener("click", onClick);
       root.removeEventListener("change", onChangeEvent);
       root.removeEventListener("input", onInput);
+      clearTimeout(toastTimer);
+      toastTimer = null;
+      root.querySelectorAll(".ux-toast").forEach((node) => node.remove());
       root.remove();
       document.getElementById(STYLE_ID)?.remove();
     },

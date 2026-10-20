@@ -162,6 +162,7 @@ export function installCapture({
       return promise;
     };
     wrapped[FLAG] = true;
+    wrapped.__uxOriginalFetch = fetchImpl;
     try {
       globalThis.fetch = wrapped;
     } catch {
@@ -174,6 +175,8 @@ export function installCapture({
     const proto = xhrImpl.prototype;
     const originalOpen = proto.open;
     const originalSend = proto.send;
+    proto.__uxOriginalOpen = originalOpen;
+    proto.__uxOriginalSend = originalSend;
     proto.open = function uxOpen(method, url, ...rest) {
       this.__uxRequest = { method, url };
       return originalOpen.call(this, method, url, ...rest);
@@ -208,6 +211,36 @@ export function installCapture({
   }
 
   return result;
+}
+
+export function uninstallCapture() {
+  try {
+    if (globalThis.fetch && globalThis.fetch[FLAG]) {
+      const original = globalThis.fetch.__uxOriginalFetch;
+      if (typeof original === "function") globalThis.fetch = original;
+    }
+  } catch {
+    // Ignore a read-only fetch.
+  }
+
+  try {
+    const proto = globalThis.XMLHttpRequest?.prototype;
+    if (proto && proto[FLAG]) {
+      if (typeof proto.__uxOriginalOpen === "function") {
+        proto.open = proto.__uxOriginalOpen;
+      }
+      if (typeof proto.__uxOriginalSend === "function") {
+        proto.send = proto.__uxOriginalSend;
+      }
+      delete proto[FLAG];
+      delete proto.__uxOriginalOpen;
+      delete proto.__uxOriginalSend;
+    }
+  } catch {
+    // Ignore a read-only XMLHttpRequest prototype.
+  }
+
+  captured = null;
 }
 
 export function getCapturedFollowing() {

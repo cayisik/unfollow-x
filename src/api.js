@@ -360,6 +360,11 @@ export async function scanFollowing(options = {}) {
     random = Math.random,
     maxPages = SCAN_LIMITS.maxPages,
     maxUsers = SCAN_LIMITS.maxUsers,
+    startCursor = "",
+    seedUsers = [],
+    seedTotal = null,
+    shouldPause,
+    shouldCancel,
   } = options;
   if (!template) throw makeError("format", "No request template");
 
@@ -371,22 +376,37 @@ export async function scanFollowing(options = {}) {
   let count = numberSetting(timings.usersPerRequest, 50);
   const fallbackCount = numberSetting(template.variables?.count, 20);
 
-  let allUsers = [];
-  let total = null;
-  let sawFollowedBy = false;
-  let missingFollowedBy = false;
-  let cursor = "";
+  let allUsers = dedupeUsers(Array.isArray(seedUsers) ? seedUsers : []);
+  const seededTotal =
+    seedTotal === null || seedTotal === undefined ? null : Number(seedTotal);
+  let total = Number.isFinite(seededTotal) ? seededTotal : null;
+  let sawFollowedBy = allUsers.some(
+    (user) => typeof user.followsViewer === "boolean"
+  );
+  let missingFollowedBy = allUsers.some(
+    (user) => user.followsViewer === null || user.followsViewer === undefined
+  );
+  let cursor = String(startCursor || "");
   let pages = 0;
   let zeroRuns = 0;
   let stopReason = "done";
-  const usedCursors = new Set();
+  const usedCursors = new Set(cursor ? [cursor] : []);
   const firstPage =
-    template.responseSample && !template.variables?.cursor
+    !cursor && template.responseSample && !template.variables?.cursor
       ? template.responseSample
       : null;
 
   while (pages < maxPages) {
-    if (signal?.aborted) throw makeError("aborted", "Aborted");
+    if (signal?.aborted || shouldCancel?.()) {
+      throw makeError("aborted", "Aborted");
+    }
+    while (shouldPause?.()) {
+      if (signal?.aborted || shouldCancel?.()) {
+        throw makeError("aborted", "Aborted");
+      }
+      onStatus({ kind: "paused", page: pages });
+      await sleepFn(500);
+    }
 
     let parsed;
     if (pages === 0 && firstPage) {

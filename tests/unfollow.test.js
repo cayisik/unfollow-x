@@ -90,6 +90,8 @@ test("queue stops on rate limit and reports counts", async () => {
   assert.equal(out.stopped, "rate");
   assert.equal(calls, 2);
   assert.equal(out.remaining, 1);
+  assert.equal(out.stopInfo.status, 429);
+  assert.ok(out.stopInfo.resetAt > Date.now());
 });
 
 test("queue downgrades mutation to REST and retries the same user", async () => {

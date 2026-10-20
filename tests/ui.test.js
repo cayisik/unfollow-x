@@ -238,3 +238,37 @@ test("pill and countdown labels", () => {
   s.unfollow = { current: "alice", total: 4, ok: 1, fail: 0, nextAt: Date.now() + 9000 };
   assert.match(countdownText(s), /Next in/);
 });
+
+test("partial results show the error and offer a resume action", () => {
+  const s = state();
+  s.partial = true;
+  s.error = "Network error. Check your connection.";
+  s.checkpoint = { users: [{ id: "1" }], cursor: "next" };
+  const html = renderResultsView(s);
+  assert.match(html, /Network error/);
+  assert.match(html, /data-action="resume"/);
+  assert.match(html, /data-action="rescan"/);
+});
+
+test("scanning view updates the waiting and pause hints", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.mode = "scanning";
+  s.paused = false;
+  s.scan = { scanned: 3, total: 10, page: 1, source: "api", waiting: true };
+  const ui = mountUI({ state: s, onAction: () => {}, onChange: () => {} });
+  const root = dom.window.document.getElementById("ux-app");
+  assert.match(root.querySelector("[data-scan-hint]").textContent, /Waiting/);
+
+  s.scan.waiting = false;
+  s.scanPauseUntil = Date.now() + 9000;
+  ui.update();
+  assert.match(root.querySelector("[data-scan-hint]").textContent, /Pausing scan/);
+
+  s.paused = true;
+  ui.update();
+  assert.match(root.querySelector("[data-scan-hint]").textContent, /paused/i);
+  ui.destroy();
+});
