@@ -296,7 +296,7 @@ export const CSS = `
 #${APP_ID} .ux-user { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 #${APP_ID} .ux-user a { min-width: 0; }
 #${APP_ID} .ux-user strong { display: block; font-size: 11.5px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#${APP_ID} .ux-user span { display: block; font-size: 10px; color: var(--ux-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#${APP_ID} .ux-user > span { display: block; font-size: 10px; color: var(--ux-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #${APP_ID} .ux-badges { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
 #${APP_ID} .ux-badge {
   display: inline-flex; align-items: center; gap: 3px;

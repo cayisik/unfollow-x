@@ -413,3 +413,8 @@ test("settings group titles are localized", () => {
   assert.match(html, /Takipten çıkarma/);
   assert.doesNotMatch(html, />Scan</);
 });
+
+test("user metadata styles do not stretch inline badges", () => {
+  assert.match(CSS, /\.ux-user > span/);
+  assert.doesNotMatch(CSS, /\.ux-user span\s*\{/);
+});
