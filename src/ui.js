@@ -114,6 +114,7 @@ export const CSS = `
 }
 #${APP_ID} .ux-grip i { width: 2px; height: 2px; border-radius: 50%; background: currentColor; display: block; }
 #${APP_ID} .ux-grip:hover { color: var(--ux-text); }
+#${APP_ID} .ux-head .ux-grip { cursor: grab; }
 #${APP_ID} .ux-grip:active { cursor: grabbing; }
 #${APP_ID} .ux-brand { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; }
 #${APP_ID} .ux-mark {
