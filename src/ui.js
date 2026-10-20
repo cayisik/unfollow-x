@@ -1335,7 +1335,10 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     const left = root.querySelector("[data-unfollow-left]");
     if (left) left.textContent = String(Math.max(0, total - done));
     const log = root.querySelector("[data-unfollow-log]");
-    if (log) log.innerHTML = renderUnfollowLog(run, t);
+    if (log) {
+      const nextLog = renderUnfollowLog(run, t);
+      if (log.innerHTML !== nextLog) log.innerHTML = nextLog;
+    }
     const hint = root.querySelector("[data-unfollow-hint]");
     if (hint) {
       hint.textContent = paused ? t("unfollowPausedHint") : t("unfollowHint");

@@ -1028,7 +1028,7 @@ export function boot() {
     state.unfollow.nextAt = 0;
 
     if (output.stopped === "rate" || output.stopped === "blocked") {
-      const until =
+      state.cooldownUntil =
         Number(output.stopInfo?.resetAt) ||
         Date.now() +
           Number(
@@ -1037,10 +1037,16 @@ export function boot() {
                 ? COOLDOWN_MS.rate
                 : COOLDOWN_MS.blocked)
           );
-      state.cooldownUntil = until;
+    }
+
+    snapshotLastScan();
+    state.mode = "done";
+    ui.render();
+
+    if (output.stopped === "rate" || output.stopped === "blocked") {
       ui.toast(
         output.stopped === "rate"
-          ? t()("tooManyRequests", { time: formatClock(until) })
+          ? t()("tooManyRequests", { time: formatClock(state.cooldownUntil) })
           : t()("unfollowBlocked")
       );
     } else if (output.stopped === "auth") {
@@ -1048,10 +1054,6 @@ export function boot() {
     } else if (output.stopped === "network") {
       ui.toast(t()("networkError"));
     }
-
-    snapshotLastScan();
-    state.mode = "done";
-    ui.render();
   }
 
   function handleAction(action, payload) {
@@ -1164,9 +1166,10 @@ export function boot() {
       document.hidden &&
       state.active.running
     ) {
+      const wasPaused = state.paused || state.active.paused;
       state.active.paused = true;
       state.paused = true;
-      ui.toast(t()("keepTabVisible"));
+      if (!wasPaused) ui.toast(t()("keepTabVisible"));
       if (state.mode === "unfollowing") ui.update();
       else ui.render();
     }

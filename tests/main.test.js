@@ -383,8 +383,8 @@ test("unfollow keeps one panel through results, pause, and heartbeat", async () 
     state.mode = "results";
     state.timings = {
       ...state.timings,
-      unfollowDelayMin: 500,
-      unfollowDelayMax: 500,
+      unfollowDelayMin: 1500,
+      unfollowDelayMax: 1500,
       unfollowPauseEvery: 0,
     };
     state.ui.render();
@@ -421,6 +421,7 @@ test("unfollow keeps one panel through results, pause, and heartbeat", async () 
       "50%"
     );
 
+    renders = 0;
     dom.window.document
       .querySelector('[data-action="pause-unfollow"]')
       .click();
@@ -442,14 +443,20 @@ test("unfollow keeps one panel through results, pause, and heartbeat", async () 
         .getAttribute("data-action"),
       "resume-unfollow"
     );
+    assert.equal(renders, 0, "pausing must not recreate the panel");
 
-    await delay(600);
+    await delay(1600);
     renders = 0;
     await delay(600);
     assert.equal(
       renders,
       0,
       "a paused queue must not recreate the panel every 250ms"
+    );
+    assert.equal(
+      dom.window.document.querySelector("[data-panel]"),
+      panel,
+      "the paused panel must stay mounted"
     );
   } finally {
     state?.cleanup();

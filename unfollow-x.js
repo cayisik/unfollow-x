@@ -3155,7 +3155,10 @@
       const left = root.querySelector("[data-unfollow-left]");
       if (left) left.textContent = String(Math.max(0, total - done));
       const log = root.querySelector("[data-unfollow-log]");
-      if (log) log.innerHTML = renderUnfollowLog(run, t2);
+      if (log) {
+        const nextLog = renderUnfollowLog(run, t2);
+        if (log.innerHTML !== nextLog) log.innerHTML = nextLog;
+      }
       const hint = root.querySelector("[data-unfollow-hint]");
       if (hint) {
         hint.textContent = paused ? t2("unfollowPausedHint") : t2("unfollowHint");
@@ -4264,21 +4267,22 @@
       state.unfollow.current = null;
       state.unfollow.nextAt = 0;
       if (output.stopped === "rate" || output.stopped === "blocked") {
-        const until = Number(output.stopInfo?.resetAt) || Date.now() + Number(
+        state.cooldownUntil = Number(output.stopInfo?.resetAt) || Date.now() + Number(
           output.stopInfo?.retryAfter || (output.stopped === "rate" ? COOLDOWN_MS.rate : COOLDOWN_MS.blocked)
         );
-        state.cooldownUntil = until;
+      }
+      snapshotLastScan();
+      state.mode = "done";
+      ui.render();
+      if (output.stopped === "rate" || output.stopped === "blocked") {
         ui.toast(
-          output.stopped === "rate" ? t()("tooManyRequests", { time: formatClock(until) }) : t()("unfollowBlocked")
+          output.stopped === "rate" ? t()("tooManyRequests", { time: formatClock(state.cooldownUntil) }) : t()("unfollowBlocked")
         );
       } else if (output.stopped === "auth") {
         ui.toast(t()("sessionExpired"));
       } else if (output.stopped === "network") {
         ui.toast(t()("networkError"));
       }
-      snapshotLastScan();
-      state.mode = "done";
-      ui.render();
     }
     function handleAction(action, payload) {
       if (state.disposed) return;
@@ -4385,9 +4389,10 @@
     }
     function onVisibility() {
       if (typeof document !== "undefined" && document.hidden && state.active.running) {
+        const wasPaused = state.paused || state.active.paused;
         state.active.paused = true;
         state.paused = true;
-        ui.toast(t()("keepTabVisible"));
+        if (!wasPaused) ui.toast(t()("keepTabVisible"));
         if (state.mode === "unfollowing") ui.update();
         else ui.render();
       }
