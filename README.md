@@ -47,6 +47,17 @@ This is an unofficial community tool. It is not affiliated with X Corp. Automati
 
 If the panel does not appear, check that you are on x.com and look for an error in the Console.
 
+## Panel behavior
+
+- The panel follows X's light/dark theme automatically and also mirrors X's
+  high-contrast and reduced-motion settings. There is no separate theme switch.
+- Drag the panel by its header. The grip is keyboard-focusable: arrow keys move
+  it by 8px (`Shift` moves 32px), and `Home` resets it to the top-right.
+- The position is remembered. The panel is clamped to the viewport and has no
+  resize handle.
+- The visual language is an audit ledger: ruled rows, one hero count, and a
+  strike/“çıktı” stamp on successful unfollows.
+
 ---
 
 ## Panel flow
@@ -243,6 +254,7 @@ Useful details:
 - `src/dom.js` parses rows and provides the DOM fallback.
 - `src/unfollow.js` implements the mutation → REST → UI transport chain.
 - `src/ui.js` contains the panel, views, dialogs, styles, and interactions.
+- `src/theme.js` reads X's theme and accessibility flags and observes changes.
 - `tests/` covers URL/response parsing, DOM parsing, UI, pacing, transports, and a jsdom boot → scan → unfollow flow.
 
 Do not edit `unfollow-x.js` by hand. Change `src/` and run `npm run build`.
@@ -263,6 +275,14 @@ Run this on a logged-in x.com session before treating a build as release-ready. 
 - [ ] Unfollow one account; confirm the row disappears and the count updates.
 - [ ] Simulate a `429` (optional DevTools block) and confirm the countdown.
 - [ ] Switch TR/EN; reload and confirm the language persists.
+- [ ] Toggle X between light and dark; the panel follows without losing the
+      current run.
+- [ ] Enable X high contrast and reduced motion; borders, focus rings, and
+      animation behavior change accordingly.
+- [ ] Drag by the header, move with the keyboard, press `Home`, resize the
+      window, and re-paste; the panel stays visible.
+- [ ] A successful unfollow row gets the strike/“çıktı” stamp; a failure does
+      not.
 
 Also confirm:
 

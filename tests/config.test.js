@@ -12,8 +12,15 @@ test("t interpolates and falls back to English", () => {
 });
 
 test("timings are sane", () => {
-  assert.equal(VERSION, "0.1.0");
+  assert.equal(VERSION, "0.2.0");
   assert.ok(DEFAULT_TIMINGS.unfollowDelayMin >= 8000);
   assert.ok(DEFAULT_TIMINGS.maxUnfollows <= 400);
   assert.ok(I18N.en && I18N.tr);
+});
+
+test("TR and EN expose the same keys", () => {
+  assert.deepEqual(
+    Object.keys(I18N.en).sort(),
+    Object.keys(I18N.tr).sort()
+  );
 });
