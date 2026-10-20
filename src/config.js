@@ -1,0 +1,393 @@
+// Central configuration: constants, localization, and defaults.
+
+export const VERSION = "0.1.0";
+
+export const APP_ID = "ux-app";
+export const STYLE_ID = "ux-style";
+export const ROOT_ID = "ux-app";
+export const PILL_ID = "ux-pill";
+
+export const STORAGE_KEY = "ux_state_v1";
+export const CHECKPOINT_KEY = "ux_scan_v1";
+export const LAST_SCAN_KEY = "ux_last_scan_v1";
+export const STATE_TTL = 24 * 60 * 60 * 1000;
+
+// Public web-client bearer token. This is the same value X ships to every
+// logged-in browser; it is not a secret and does not grant access on its own.
+export const BEARER =
+  "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
+
+export const UNFOLLOW_MUTATION_ID = "RjGnpAQuMmcqXSjoCR7t6w";
+export const LEGACY_FOLLOWING_ID = "eWTmcJY3EMh-dxIR7CYTKw";
+export const NEW_FOLLOWING_ID = "m7RabhcYnvy3hM1xuz30oA";
+
+// Fallback only. The captured request is always preferred.
+export const LEGACY_FOLLOWING_FEATURES = {
+  rweb_video_screen_enabled: false,
+  payments_enabled: false,
+  profile_label_improvements_pcf_label_in_post_enabled: true,
+  responsive_web_profile_redirect_enabled: false,
+  rweb_tipjar_consumption_enabled: false,
+  verified_phone_label_enabled: false,
+  creator_subscriptions_tweet_preview_api_enabled: true,
+  responsive_web_graphql_timeline_navigation_enabled: true,
+  responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+  premium_content_api_read_enabled: false,
+  communities_web_enable_tweet_community_results_fetch: true,
+  c9s_tweet_anatomy_moderator_badge_enabled: true,
+  responsive_web_grok_analyze_button_fetch_trends_enabled: false,
+  responsive_web_grok_analyze_post_followups_enabled: true,
+  responsive_web_jetfuel_frame: false,
+  responsive_web_grok_share_attachment_enabled: true,
+  articles_preview_enabled: true,
+  responsive_web_edit_tweet_api_enabled: true,
+  graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
+  view_counts_everywhere_api_enabled: true,
+  longform_notetweets_consumption_enabled: true,
+  responsive_web_twitter_article_tweet_consumption_enabled: true,
+  tweet_awards_web_tipping_enabled: false,
+  responsive_web_grok_show_grok_translated_post: false,
+  responsive_web_grok_analysis_button_from_backend: true,
+  creator_subscriptions_quote_tweet_preview_enabled: false,
+  freedom_of_speech_not_reach_fetch_enabled: true,
+  standardized_nudges_misinfo: true,
+  tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+  longform_notetweets_rich_text_read_enabled: true,
+  longform_notetweets_inline_media_enabled: true,
+  responsive_web_grok_image_annotation_enabled: true,
+  responsive_web_grok_community_note_auto_translation_is_enabled: false,
+  responsive_web_enhance_cards_enabled: false,
+};
+
+export const DEFAULT_TIMINGS = {
+  scanDelayMin: 1500,
+  scanDelayMax: 2500,
+  scanPauseEveryPages: 10,
+  scanPauseMs: 10000,
+  usersPerRequest: 50,
+  unfollowDelayMin: 12000,
+  unfollowDelayMax: 20000,
+  unfollowPauseEvery: 25,
+  unfollowPauseMs: 300000,
+  maxUnfollows: 190,
+};
+
+export const COOLDOWN_MS = {
+  rate: 15 * 60 * 1000,
+  blocked: 3 * 60 * 60 * 1000,
+};
+
+export const SCAN_LIMITS = {
+  maxUsers: 10000,
+  maxPages: 400,
+  captureWaitMs: 15000,
+  navTimeoutMs: 10000,
+};
+
+export const DEFAULT_FILTERS = {
+  verified: true,
+  protected: true,
+  noAvatar: true,
+  showHidden: false,
+};
+
+export const PANEL = {
+  margin: 16,
+  width: 424,
+  top: 68,
+  right: 18,
+};
+
+export const UNFOLLOW_PATHS = {
+  mutation: `/i/api/graphql/${UNFOLLOW_MUTATION_ID}/unfollowUserMutation`,
+  rest: "/i/api/1.1/friendships/destroy.json",
+};
+
+export const SOURCES = {
+  api: "api",
+  dom: "dom",
+};
+
+export const TRANSPORTS = {
+  mutation: "mutation",
+  rest: "rest",
+  ui: "ui",
+};
+
+export const I18N = {
+  en: {
+    appTitle: "Unfollow X",
+    subtitle: "Find accounts that do not follow you back.",
+    scanBtn: "Scan now",
+    scanning: "Scanning…",
+    loadingFollowing: "Loading your following list…",
+    liveFound: "{count} non-followers so far",
+    liveWaiting: "Waiting for data…",
+    liveHint: "Keep this tab visible. X loads the list as you scroll.",
+    captureWait: "Waiting for X to send the following request…",
+    domScanHint: "Scanning the visible list. Scroll the page if it stalls.",
+    scanningPage: "Page {page} · {count} scanned",
+    unverified:
+      "Could not verify who follows you back. Unfollow is disabled for this scan.",
+    resumeAfter: "Resume previous scan",
+    showLastScan: "Show last scan",
+    lastScanNotice: "Showing the last scan from {time}.",
+    rescan: "Scan again",
+    paused: "Paused",
+    pause: "Pause",
+    resume: "Resume",
+    cancel: "Cancel",
+    ofTotal: "{count} of {total}",
+    ofUnknown: "{count} scanned",
+    countFollowing: "Following: {count}",
+    scanCompletedToast: "Scan complete: {count} non-followers.",
+    scanFailed: "Scan failed.",
+    retry: "Retry",
+    goBack: "Back",
+    search: "Search name or @handle",
+    filterVerified: "Verified",
+    filterProtected: "Protected",
+    filterNoAvatar: "No avatar",
+    filterShowHidden: "Show hidden",
+    foundCount: "{count} non-followers",
+    foundOne: "1 non-follower",
+    foundNone: "No non-followers found",
+    noMatches: "No accounts match these filters.",
+    hide: "Hide",
+    unhide: "Show",
+    openProfile: "Open profile",
+    copy: "Copy handle",
+    copyAll: "Copy all",
+    copiedToast: "Copied.",
+    selectAll: "Select all",
+    selectNone: "Clear selection",
+    selectedCount: "{count} selected",
+    unfollow: "Unfollow",
+    unfollowConfirmTitle: "Unfollow {count} accounts?",
+    unfollowConfirmBody:
+      "This cannot be undone. The script waits 12–20 seconds between actions and pauses every 25 accounts.",
+    unfollowConfirmBtn: "Unfollow {count}",
+    unfollowing: "Unfollowing…",
+    currently: "Now: @{handle}",
+    nextActionIn: "Next in {seconds}s",
+    cooldownIn: "Cooling down: {time}",
+    scanPause: "Pausing scan: {seconds}s",
+    unfollowDoneTitle: "Done",
+    unfollowDoneBody:
+      "Unfollowed {ok}. Failed: {fail}. Remaining: {remaining}.",
+    unfollowBlocked: "X blocked the action. Stop and try again later.",
+    settings: "Settings",
+    settingsTitle: "Timings & limits",
+    settingsBody: "Slower is safer. Values are in seconds unless noted.",
+    minScanDelay: "Min scan delay (s)",
+    maxScanDelay: "Max scan delay (s)",
+    scanPauseEvery: "Pause scan every N pages",
+    scanPauseLength: "Scan pause (s)",
+    usersPerRequest: "Users per request",
+    minUnfollowDelay: "Min unfollow delay (s)",
+    maxUnfollowDelay: "Max unfollow delay (s)",
+    unfollowPauseEvery: "Pause every N unfollows",
+    unfollowPauseLength: "Unfollow pause (s)",
+    maxUnfollows: "Max unfollows per run",
+    restoreDefaults: "Restore defaults",
+    save: "Save",
+    saved: "Saved.",
+    settingsSaved: "Settings saved.",
+    cookieMissing: "ct0 cookie not found. Log in to x.com and reload.",
+    csrfMissing: "CSRF token missing. Reload x.com.",
+    authRequired: "Log in to x.com first.",
+    requestFailed: "Request failed ({status}).",
+    tooManyRequests: "Rate limited. Try again at {time}.",
+    sessionExpired: "Session expired. Reload x.com and log in.",
+    scanBlocked: "X blocked the scan. Wait a few hours or use the DOM fallback.",
+    networkError: "Network error. Check your connection and resume.",
+    keepTabVisible: "Keep this tab visible while scanning.",
+    resumeScan: "Resume scan",
+    startOver: "Start over",
+    partialTitle: "Scan paused",
+    partialBody: "Scanned {count} accounts. You can resume later.",
+    scanNotice: "Scanned {count} accounts.",
+    close: "Close",
+    langSwitch: "Türkçe",
+    minimize: "Minimize",
+    expand: "Expand",
+    langCode: "EN",
+    pillScanning: "Scanning",
+    pillUnfollowing: "Unfollowing",
+    pillResults: "{count} non-followers",
+    pillIdle: "Unfollow X",
+    navigateHint: "Open your Following page to let X load the list.",
+    manualHandle: "Your @handle",
+    manualHandleBody:
+      "We could not detect your profile. Enter your X handle (without @).",
+    openFollowing: "Open Following",
+    navFailed: "Could not open your Following page. Open {url} and paste again.",
+    transportDowngrade: "Switched to the REST fallback.",
+    uiFallback: "Switched to clicking the UI. Keep the tab visible.",
+    noSelection: "Select at least one account.",
+    capNotice: "This run is capped at {max} unfollows.",
+    domEmpty: "No accounts found on the page. Open your Following page and try again.",
+    unknownError: "Something went wrong.",
+    pausedAt: "Paused at {count}.",
+    resumeHint: "Checkpoint saved. Paste the script again to resume.",
+    lastScanEmpty: "No previous scan found.",
+    rateCooldown: "Rate limited. Cooldown until {time}.",
+    blockedCooldown: "Blocked. Cooldown until {time}.",
+    sourceApi: "API scan",
+    sourceDom: "DOM scan",
+    tabFollowing: "Following",
+    tabFollowers: "Followers",
+  },
+  tr: {
+    appTitle: "Unfollow X",
+    subtitle: "Seni geri takip etmeyenleri bul.",
+    scanBtn: "Taramayı başlat",
+    scanning: "Taranıyor…",
+    loadingFollowing: "Takip listen yükleniyor…",
+    liveFound: "Şu ana kadar {count} takip etmeyen",
+    liveWaiting: "Veri bekleniyor…",
+    liveHint: "Bu sekmeyi görünür tut. X listeyi kaydırdıkça yükler.",
+    captureWait: "X'in takip listesi isteği göndermesi bekleniyor…",
+    domScanHint: "Görünür liste taranıyor. Takılırsa sayfayı kaydır.",
+    scanningPage: "Sayfa {page} · {count} tarandı",
+    unverified:
+      "Kimin seni geri takip ettiği doğrulanamadı. Bu tarama için takipten çıkarma kapalı.",
+    resumeAfter: "Önceki taramaya devam et",
+    showLastScan: "Son taramayı göster",
+    lastScanNotice: "{time} tarihli son tarama gösteriliyor.",
+    rescan: "Yeniden tara",
+    paused: "Duraklatıldı",
+    pause: "Duraklat",
+    resume: "Devam et",
+    cancel: "İptal",
+    ofTotal: "{count} / {total}",
+    ofUnknown: "{count} tarandı",
+    countFollowing: "Takip edilen: {count}",
+    scanCompletedToast: "Tarama bitti: {count} takip etmeyen.",
+    scanFailed: "Tarama başarısız.",
+    retry: "Tekrar dene",
+    goBack: "Geri",
+    search: "İsim veya @kullanıcı ara",
+    filterVerified: "Doğrulanmış",
+    filterProtected: "Korumalı",
+    filterNoAvatar: "Avatarsız",
+    filterShowHidden: "Gizlenenleri göster",
+    foundCount: "{count} takip etmeyen",
+    foundOne: "1 takip etmeyen",
+    foundNone: "Takip etmeyen bulunamadı",
+    noMatches: "Bu filtrelerle eşleşen hesap yok.",
+    hide: "Gizle",
+    unhide: "Göster",
+    openProfile: "Profili aç",
+    copy: "Kullanıcı adını kopyala",
+    copyAll: "Hepsini kopyala",
+    copiedToast: "Kopyalandı.",
+    selectAll: "Tümünü seç",
+    selectNone: "Seçimi temizle",
+    selectedCount: "{count} seçili",
+    unfollow: "Takipten çık",
+    unfollowConfirmTitle: "{count} hesaptan çıkılsın mı?",
+    unfollowConfirmBody:
+      "Bu işlem geri alınamaz. Script işlemler arasında 12–20 saniye bekler ve her 25 hesapta bir duraklar.",
+    unfollowConfirmBtn: "{count} takipten çık",
+    unfollowing: "Takipten çıkılıyor…",
+    currently: "Şu an: @{handle}",
+    nextActionIn: "Sonraki: {seconds} sn",
+    cooldownIn: "Bekleme: {time}",
+    scanPause: "Tarama duraklıyor: {seconds} sn",
+    unfollowDoneTitle: "Bitti",
+    unfollowDoneBody:
+      "{ok} takipten çıkıldı. Başarısız: {fail}. Kalan: {remaining}.",
+    unfollowBlocked: "X işlemi engelledi. Durdur ve daha sonra tekrar dene.",
+    settings: "Ayarlar",
+    settingsTitle: "Süreler ve limitler",
+    settingsBody:
+      "Yavaş olan daha güvenli. Aksi belirtilmedikçe değerler saniye cinsindendir.",
+    minScanDelay: "Min tarama beklemesi (sn)",
+    maxScanDelay: "Maks tarama beklemesi (sn)",
+    scanPauseEvery: "Her N sayfada duraklat",
+    scanPauseLength: "Tarama duraklaması (sn)",
+    usersPerRequest: "İstek başına kullanıcı",
+    minUnfollowDelay: "Min çıkarma beklemesi (sn)",
+    maxUnfollowDelay: "Maks çıkarma beklemesi (sn)",
+    unfollowPauseEvery: "Her N çıkarmada duraklat",
+    unfollowPauseLength: "Çıkarma duraklaması (sn)",
+    maxUnfollows: "Çalıştırma başına maks çıkarma",
+    restoreDefaults: "Varsayılanlara dön",
+    save: "Kaydet",
+    saved: "Kaydedildi.",
+    settingsSaved: "Ayarlar kaydedildi.",
+    cookieMissing: "ct0 çerezi bulunamadı. x.com'a giriş yapıp sayfayı yenile.",
+    csrfMissing: "CSRF tokenı yok. x.com'u yenile.",
+    authRequired: "Önce x.com'a giriş yap.",
+    requestFailed: "İstek başarısız ({status}).",
+    tooManyRequests: "Hız limiti. {time} sonra tekrar dene.",
+    sessionExpired: "Oturum süresi doldu. x.com'u yenileyip giriş yap.",
+    scanBlocked:
+      "X taramayı engelledi. Birkaç saat bekle veya DOM yedeğini kullan.",
+    networkError: "Ağ hatası. Bağlantını kontrol edip devam et.",
+    keepTabVisible: "Tarama sırasında bu sekmeyi görünür tut.",
+    resumeScan: "Taramaya devam et",
+    startOver: "Baştan başla",
+    partialTitle: "Tarama duraklatıldı",
+    partialBody: "{count} hesap tarandı. Daha sonra devam edebilirsin.",
+    scanNotice: "{count} hesap tarandı.",
+    close: "Kapat",
+    langSwitch: "English",
+    minimize: "Küçült",
+    expand: "Genişlet",
+    langCode: "TR",
+    pillScanning: "Taranıyor",
+    pillUnfollowing: "Çıkılıyor",
+    pillResults: "{count} takip etmeyen",
+    pillIdle: "Unfollow X",
+    navigateHint:
+      "X'in listeyi yüklemesi için takip ettiğin sayfasını aç.",
+    manualHandle: "@kullanıcı adın",
+    manualHandleBody:
+      "Profilin bulunamadı. X kullanıcı adını @ olmadan gir.",
+    openFollowing: "Takip edilenleri aç",
+    navFailed:
+      "Takip ettiğin sayfası açamadım. {url} adresini açıp script'i tekrar yapıştır.",
+    transportDowngrade: "REST yedeğine geçildi.",
+    uiFallback: "Arayüze tıklama moduna geçildi. Sekmeyi görünür tut.",
+    noSelection: "En az bir hesap seç.",
+    capNotice: "Bu çalıştırma {max} takipten çıkarma ile sınırlı.",
+    domEmpty:
+      "Sayfada hesap bulunamadı. Takip ettiğin sayfayı açıp tekrar dene.",
+    unknownError: "Bir şeyler ters gitti.",
+    pausedAt: "{count}. hesapta duraklatıldı.",
+    resumeHint: "Kontrol noktası kaydedildi. Devam etmek için script'i tekrar yapıştır.",
+    lastScanEmpty: "Önceki tarama bulunamadı.",
+    rateCooldown: "Hız limiti. {time} saatine kadar bekle.",
+    blockedCooldown: "Engellendi. {time} saatine kadar bekle.",
+    sourceApi: "API taraması",
+    sourceDom: "DOM taraması",
+    tabFollowing: "Takip edilenler",
+    tabFollowers: "Takipçiler",
+  },
+};
+
+export function makeT(language = "en") {
+  const dict = I18N[language] || I18N.en;
+  return function t(key, vars = {}) {
+    const raw = dict[key] ?? I18N.en[key] ?? key;
+    return String(raw).replace(/\{(\w+)\}/g, (match, name) =>
+      vars[name] === undefined || vars[name] === null ? match : String(vars[name])
+    );
+  };
+}
+
+export const ICONS = {
+  gear: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.23.57.77.96 1.4 1H21a2 2 0 1 1 0 4h-.09c-.63.04-1.17.43-1.51 1Z"/></svg>`,
+  close: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>`,
+  minimize: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>`,
+  expand: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>`,
+  external: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>`,
+  alert: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v5M12 17.2v.1"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg>`,
+  copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>`,
+  eye: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>`,
+  eyeOff: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6.2A10.9 10.9 0 0 1 12 6c6.5 0 10 6 10 6a17.6 17.6 0 0 1-2.4 3.1M6.1 7.8A17 17 0 0 0 2 12s3.5 6 10 6c1.6 0 3-.4 4.3-1"/></svg>`,
+};
