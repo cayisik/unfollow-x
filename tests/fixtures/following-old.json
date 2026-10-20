@@ -1,0 +1,45 @@
+{
+  "data": {
+    "user": {
+      "result": {
+        "legacy": { "friends_count": 2 },
+        "timeline": {
+          "timeline": {
+            "instructions": [
+              {
+                "type": "TimelineAddEntries",
+                "entries": [
+                  {
+                    "entryId": "user-1",
+                    "content": {
+                      "itemContent": {
+                        "itemType": "TimelineUser",
+                        "user_results": {
+                          "result": {
+                            "rest_id": "1",
+                            "legacy": {
+                              "screen_name": "alice",
+                              "name": "Alice",
+                              "profile_image_url_https": "https://p/a.jpg",
+                              "followed_by": false,
+                              "verified": false,
+                              "protected": false
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "entryId": "cursor-bottom",
+                    "content": { "cursorType": "Bottom", "value": "CURSOR-1" }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

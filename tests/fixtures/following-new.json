@@ -1,0 +1,42 @@
+{
+  "data": {
+    "user_result_by_screen_name": {
+      "result": {
+        "relationship_counts": { "following": 2 },
+        "following_timeline": {
+          "timeline": {
+            "instructions": [
+              {
+                "type": "TimelineAddEntries",
+                "entries": [
+                  {
+                    "entryId": "user-1",
+                    "content": {
+                      "itemContent": {
+                        "itemType": "TimelineUser",
+                        "user_results": {
+                          "result": {
+                            "rest_id": "1",
+                            "core": { "screen_name": "alice", "name": "Alice" },
+                            "avatar": { "image_url": "https://p/a.jpg" },
+                            "relationship_perspectives": { "followed_by": false },
+                            "is_blue_verified": false,
+                            "privacy": { "protected": false }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "entryId": "cursor-bottom",
+                    "content": { "cursorType": "Bottom", "value": "CURSOR-1" }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
