@@ -299,3 +299,136 @@ test("scan flow reaches results from a captured following response", async () =>
     dom.window.close();
   }
 });
+
+test("paused unfollow does not recreate the panel on every heartbeat", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body>',
+    { url: "https://x.com/me/following" }
+  );
+  dom.window.document.cookie = "ct0=test; path=/";
+  dom.window.document.cookie = "twid=u%3D123; path=/";
+
+  const originalFetch = globalThis.fetch;
+  const fakeFetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: { unfollow_user: { __typename: "UnfollowSuccessResult" } },
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }
+    );
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    fetch: globalThis.fetch,
+  };
+  const localStorageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "localStorage"
+  );
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const waitFor = async (predicate, timeout = 1000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      if (predicate()) return true;
+      await delay(20);
+    }
+    return false;
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    set("fetch", fakeFetch);
+
+    state = boot();
+    state.users = [
+      {
+        id: "1",
+        handle: "alice",
+        name: "Alice",
+        avatar: "",
+        verified: false,
+        protected: false,
+        followsViewer: false,
+      },
+      {
+        id: "2",
+        handle: "bob",
+        name: "Bob",
+        avatar: "",
+        verified: false,
+        protected: false,
+        followsViewer: false,
+      },
+    ];
+    state.selected = new Set(["1", "2"]);
+    state.unverified = false;
+    state.mode = "results";
+    state.timings = {
+      ...state.timings,
+      unfollowDelayMin: 0,
+      unfollowDelayMax: 0,
+      unfollowPauseEvery: 0,
+    };
+    state.ui.render();
+
+    const originalRender = state.ui.render;
+    let renders = 0;
+    state.ui.render = (...args) => {
+      renders += 1;
+      return originalRender(...args);
+    };
+
+    dom.window.document.querySelector('[data-action="unfollow"]').click();
+    dom.window.document.querySelector("[data-confirm]").click();
+    state.active.paused = true;
+    state.paused = true;
+
+    const paused = await waitFor(() => {
+      const eyebrow = dom.window.document.querySelector(
+        '[data-view="unfollowing"] .ux-eyebrow'
+      );
+      return /paused/i.test(eyebrow?.textContent || "");
+    });
+    assert.equal(paused, true);
+    await delay(50);
+    renders = 0;
+    await delay(600);
+    assert.equal(
+      renders,
+      0,
+      "a paused queue must not recreate the panel every 250ms"
+    );
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    if (localStorageDescriptor) {
+      Object.defineProperty(
+        globalThis,
+        "localStorage",
+        localStorageDescriptor
+      );
+    } else {
+      delete globalThis.localStorage;
+    }
+    globalThis.fetch = originalFetch;
+    dom.window.close();
+  }
+});

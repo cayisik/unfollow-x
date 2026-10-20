@@ -981,8 +981,10 @@ export function boot() {
         );
         ui.update();
       } else if (event.kind === "paused") {
-        state.paused = true;
-        ui.render();
+        if (!state.paused) {
+          state.paused = true;
+          ui.render();
+        }
       } else if (event.kind === "delay") {
         state.unfollow.nextAt = Date.now() + Number(event.ms || 0);
         ui.update();
