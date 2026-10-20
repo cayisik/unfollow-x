@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import {
+  CSS,
   renderResultsView,
   getDisplayUsers,
   pruneSelection,
@@ -271,4 +272,13 @@ test("scanning view updates the waiting and pause hints", () => {
   ui.update();
   assert.match(root.querySelector("[data-scan-hint]").textContent, /paused/i);
   ui.destroy();
+});
+
+test("CSS exposes both X themes, Chirp, and no glass effects", () => {
+  assert.match(CSS, /\[data-theme="light"\]/);
+  assert.match(CSS, /TwitterChirp/);
+  assert.match(CSS, /data-high-contrast/);
+  assert.match(CSS, /data-reduce-motion/);
+  assert.doesNotMatch(CSS, /backdrop-filter/);
+  assert.doesNotMatch(CSS, /linear-gradient/);
 });
