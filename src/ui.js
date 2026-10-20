@@ -709,6 +709,22 @@ function renderScanView(state) {
   </section>`;
 }
 
+function renderUnfollowLog(run, t) {
+  const log = (run.log || []).slice(-5).reverse();
+  return log.length
+    ? log
+        .map(
+          (entry) =>
+            `<div class="ux-log-row${entry.ok ? "" : " is-fail"}"><span class="ux-dot"></span><span>@${escapeHTML(
+              entry.handle || "—"
+            )}</span><span>${escapeHTML(
+              entry.ok ? "ok" : entry.reason || "fail"
+            )}</span></div>`
+        )
+        .join("")
+    : `<div class="ux-empty">${escapeHTML(t("unfollowHint"))}</div>`;
+}
+
 function renderUnfollowView(state) {
   const t = makeT(state.language);
   const run = state.unfollow || {};
@@ -716,48 +732,39 @@ function renderUnfollowView(state) {
   const done = (Number(run.ok) || 0) + (Number(run.fail) || 0);
   const percent = total ? clamp((done / total) * 100, 0, 100) : 0;
   const paused = Boolean(state.paused);
-  const log = (run.log || []).slice(-5).reverse();
   return `<section class="ux-view ux-unfollowing" data-view="unfollowing">
     <div class="ux-scan-top">
       <div>
-        <span class="ux-eyebrow">${escapeHTML(
+        <span class="ux-eyebrow" data-unfollow-eyebrow>${escapeHTML(
           paused ? t("paused") : t("unfollowing")
         )}</span>
-        <h2>${escapeHTML(String(done))} / ${escapeHTML(String(total))}</h2>
+        <h2 data-unfollow-count>${escapeHTML(
+          String(done)
+        )} / ${escapeHTML(String(total))}</h2>
       </div>
-      <span class="ux-source-badge">${escapeHTML(
+      <span class="ux-source-badge" data-unfollow-transport>${escapeHTML(
         String(run.transport || "mutation").toUpperCase()
       )}</span>
     </div>
     <div class="ux-bar"><i data-unfollow-progress style="width:${percent}%"></i></div>
-    <div class="ux-current">${escapeHTML(
+    <div class="ux-current" data-unfollow-current>${escapeHTML(
       t("currently", { handle: run.current || "—" })
     )}</div>
     <div class="ux-next" data-next>${escapeHTML(countdownText(state))}</div>
     <div class="ux-statline">
-      <div class="ux-stat"><strong>${Number(run.ok) || 0}</strong><span>ok</span></div>
-      <div class="ux-stat"><strong>${Number(run.fail) || 0}</strong><span>fail</span></div>
-      <div class="ux-stat"><strong>${Math.max(0, total - done)}</strong><span>left</span></div>
+      <div class="ux-stat"><strong data-unfollow-ok>${Number(run.ok) || 0}</strong><span>ok</span></div>
+      <div class="ux-stat"><strong data-unfollow-fail>${Number(run.fail) || 0}</strong><span>fail</span></div>
+      <div class="ux-stat"><strong data-unfollow-left>${Math.max(
+        0,
+        total - done
+      )}</strong><span>left</span></div>
     </div>
-    <div class="ux-log" data-unfollow-log>${
-      log.length
-        ? log
-            .map(
-              (entry) =>
-                `<div class="ux-log-row${entry.ok ? "" : " is-fail"}"><span class="ux-dot"></span><span>@${escapeHTML(
-                  entry.handle || "—"
-                )}</span><span>${escapeHTML(
-                  entry.ok ? "ok" : entry.reason || "fail"
-                )}</span></div>`
-            )
-            .join("")
-        : `<div class="ux-empty">${escapeHTML(t("unfollowHint"))}</div>`
-    }</div>
-    <p class="ux-hint">${escapeHTML(
+    <div class="ux-log" data-unfollow-log>${renderUnfollowLog(run, t)}</div>
+    <p class="ux-hint" data-unfollow-hint>${escapeHTML(
       paused ? t("unfollowPausedHint") : t("unfollowHint")
     )}</p>
     <div class="ux-actions">
-      <button class="ux-btn ux-btn-soft" data-action="${
+      <button class="ux-btn ux-btn-soft" data-unfollow-toggle data-action="${
         paused ? "resume-unfollow" : "pause-unfollow"
       }">${escapeHTML(paused ? t("resume") : t("pause"))}</button>
       <button class="ux-btn ux-btn-danger" data-action="cancel-unfollow">${escapeHTML(
@@ -879,7 +886,7 @@ export function renderPill(state) {
     makeT(state.language)("expand")
   )}">
     <span class="ux-pill-dot ${escapeAttr(state.mode || "idle")}"></span>
-    <span>${escapeHTML(pillLabel(state))}</span>
+    <span data-pill-label>${escapeHTML(pillLabel(state))}</span>
     ${ICONS.expand}
   </button>`;
 }
@@ -1298,23 +1305,62 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
   };
 
   const updateUnfollowing = () => {
+    const t = makeT(state.language);
     const run = state.unfollow || {};
     const done = (Number(run.ok) || 0) + (Number(run.fail) || 0);
     const total = Number(run.total) || 0;
+    const paused = Boolean(state.paused);
     const bar = root.querySelector("[data-unfollow-progress]");
     if (bar) bar.style.width = `${total ? clamp((done / total) * 100, 0, 100) : 0}%`;
-    const current = root.querySelector(".ux-current");
+    const eyebrow = root.querySelector("[data-unfollow-eyebrow]");
+    if (eyebrow) {
+      eyebrow.textContent = paused ? t("paused") : t("unfollowing");
+    }
+    const count = root.querySelector("[data-unfollow-count]");
+    if (count) count.textContent = `${done} / ${total}`;
+    const transport = root.querySelector("[data-unfollow-transport]");
+    if (transport) {
+      transport.textContent = String(run.transport || "mutation").toUpperCase();
+    }
+    const current = root.querySelector("[data-unfollow-current]");
     if (current) {
-      current.textContent = t()("currently", { handle: run.current || "—" });
+      current.textContent = t("currently", { handle: run.current || "—" });
     }
     const next = root.querySelector("[data-next]");
     if (next) next.textContent = countdownText(state);
+    const ok = root.querySelector("[data-unfollow-ok]");
+    if (ok) ok.textContent = String(Number(run.ok) || 0);
+    const fail = root.querySelector("[data-unfollow-fail]");
+    if (fail) fail.textContent = String(Number(run.fail) || 0);
+    const left = root.querySelector("[data-unfollow-left]");
+    if (left) left.textContent = String(Math.max(0, total - done));
+    const log = root.querySelector("[data-unfollow-log]");
+    if (log) log.innerHTML = renderUnfollowLog(run, t);
+    const hint = root.querySelector("[data-unfollow-hint]");
+    if (hint) {
+      hint.textContent = paused ? t("unfollowPausedHint") : t("unfollowHint");
+    }
+    const toggle = root.querySelector("[data-unfollow-toggle]");
+    if (toggle) {
+      toggle.setAttribute(
+        "data-action",
+        paused ? "resume-unfollow" : "pause-unfollow"
+      );
+      toggle.textContent = paused ? t("resume") : t("pause");
+    }
   };
 
   const update = () => {
     if (!root.isConnected) return;
     if (state.minimized) {
-      root.innerHTML = renderPill(state);
+      const dot = root.querySelector(".ux-pill-dot");
+      const label = root.querySelector("[data-pill-label]");
+      if (!dot || !label) {
+        root.innerHTML = renderPill(state);
+        return;
+      }
+      dot.className = `ux-pill-dot ${state.mode || "idle"}`;
+      label.textContent = pillLabel(state);
       return;
     }
     const view = root.querySelector("[data-view]");

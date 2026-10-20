@@ -965,14 +965,14 @@ export function boot() {
             (state.unfollow.ok + state.unfollow.fail)
         );
         snapshotLastScan();
-        ui.render();
+        ui.update();
       } else if (event.kind === "downgrade") {
         ui.toast(
           event.to === "ui"
             ? t()("uiFallback")
             : t()("transportDowngrade")
         );
-        ui.render();
+        ui.update();
       } else if (event.kind === "long-pause") {
         ui.toast(
           t()("scanPause", {
@@ -983,7 +983,7 @@ export function boot() {
       } else if (event.kind === "paused") {
         if (!state.paused) {
           state.paused = true;
-          ui.render();
+          ui.update();
         }
       } else if (event.kind === "delay") {
         state.unfollow.nextAt = Date.now() + Number(event.ms || 0);
@@ -1110,14 +1110,14 @@ export function boot() {
       if (state.active.running) {
         state.active.paused = true;
         state.paused = true;
-        ui.render();
+        ui.update();
       }
       return;
     }
     if (action === "resume-unfollow") {
       state.active.paused = false;
       state.paused = false;
-      ui.render();
+      ui.update();
       return;
     }
     if (action === "cancel-unfollow") {
@@ -1167,7 +1167,8 @@ export function boot() {
       state.active.paused = true;
       state.paused = true;
       ui.toast(t()("keepTabVisible"));
-      ui.render();
+      if (state.mode === "unfollowing") ui.update();
+      else ui.render();
     }
   }
 

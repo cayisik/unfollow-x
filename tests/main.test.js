@@ -300,7 +300,7 @@ test("scan flow reaches results from a captured following response", async () =>
   }
 });
 
-test("paused unfollow does not recreate the panel on every heartbeat", async () => {
+test("unfollow keeps one panel through results, pause, and heartbeat", async () => {
   const dom = new JSDOM(
     '<!doctype html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body>',
     { url: "https://x.com/me/following" }
@@ -383,8 +383,8 @@ test("paused unfollow does not recreate the panel on every heartbeat", async () 
     state.mode = "results";
     state.timings = {
       ...state.timings,
-      unfollowDelayMin: 0,
-      unfollowDelayMax: 0,
+      unfollowDelayMin: 500,
+      unfollowDelayMax: 500,
       unfollowPauseEvery: 0,
     };
     state.ui.render();
@@ -398,9 +398,32 @@ test("paused unfollow does not recreate the panel on every heartbeat", async () 
 
     dom.window.document.querySelector('[data-action="unfollow"]').click();
     dom.window.document.querySelector("[data-confirm]").click();
-    state.active.paused = true;
-    state.paused = true;
+    const panel = dom.window.document.querySelector("[data-panel]");
+    assert.ok(panel);
 
+    const gotResult = await waitFor(() => state.unfollow.ok === 1);
+    assert.equal(gotResult, true);
+    assert.equal(
+      dom.window.document.querySelector("[data-panel]"),
+      panel,
+      "a result must update the existing panel"
+    );
+    assert.match(
+      dom.window.document.querySelector("[data-unfollow-log]").textContent,
+      /@alice/
+    );
+    assert.equal(
+      dom.window.document.querySelector("[data-unfollow-ok]").textContent,
+      "1"
+    );
+    assert.equal(
+      dom.window.document.querySelector("[data-unfollow-progress]").style.width,
+      "50%"
+    );
+
+    dom.window.document
+      .querySelector('[data-action="pause-unfollow"]')
+      .click();
     const paused = await waitFor(() => {
       const eyebrow = dom.window.document.querySelector(
         '[data-view="unfollowing"] .ux-eyebrow'
@@ -408,7 +431,19 @@ test("paused unfollow does not recreate the panel on every heartbeat", async () 
       return /paused/i.test(eyebrow?.textContent || "");
     });
     assert.equal(paused, true);
-    await delay(50);
+    assert.equal(
+      dom.window.document.querySelector("[data-panel]"),
+      panel,
+      "pausing must update the existing panel"
+    );
+    assert.equal(
+      dom.window.document
+        .querySelector("[data-unfollow-toggle]")
+        .getAttribute("data-action"),
+      "resume-unfollow"
+    );
+
+    await delay(600);
     renders = 0;
     await delay(600);
     assert.equal(
