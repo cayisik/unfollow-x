@@ -942,8 +942,15 @@ export function renderShell(state) {
   const handle = state.viewer?.handle || "";
   return `<div class="ux-panel" data-panel>
     <header class="ux-head" data-drag>
+      <button class="ux-grip" data-drag-handle type="button" aria-label="${escapeAttr(
+        t("movePanel")
+      )}" title="${escapeAttr(
+        t("movePanel")
+      )}" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Home">
+        <i></i><i></i><i></i><i></i><i></i><i></i>
+      </button>
       <div class="ux-brand">
-        <span class="ux-mark">X</span>
+        <span class="ux-mark" aria-hidden="true">X</span>
         <div class="ux-brand-text">
           <strong>${escapeHTML(t("appTitle"))}</strong>
           <span>${escapeHTML(handle ? `@${handle}` : t("subtitle"))}</span>
@@ -959,7 +966,7 @@ export function renderShell(state) {
         <button class="ux-icon-btn" data-action="minimize" title="${escapeAttr(
           t("minimize")
         )}" aria-label="${escapeAttr(t("minimize"))}">${ICONS.minimize}</button>
-        <button class="ux-icon-btn is-danger" data-action="close" title="${escapeAttr(
+        <button class="ux-icon-btn" data-action="close" title="${escapeAttr(
           t("close")
         )}" aria-label="${escapeAttr(t("close"))}">${ICONS.close}</button>
       </div>
@@ -991,7 +998,7 @@ export function pillLabel(state) {
 }
 
 export function renderPill(state) {
-  return `<button class="ux-pill" data-action="expand" title="${escapeAttr(
+  return `<button class="ux-pill" data-pill data-action="expand" title="${escapeAttr(
     makeT(state.language)("expand")
   )}">
     <span class="ux-pill-dot ${escapeAttr(state.mode || "idle")}"></span>
@@ -1244,51 +1251,184 @@ export function toast(message) {
   toastTimer = setTimeout(() => element.remove(), 3500);
 }
 
+export function clampPanelPosition(
+  left,
+  top,
+  width,
+  height,
+  viewportWidth = 1024,
+  viewportHeight = 768,
+  margin = PANEL.margin
+) {
+  const maxLeft = Math.max(margin, viewportWidth - width - margin);
+  const maxTop = Math.max(margin, viewportHeight - height - margin);
+  return {
+    left: clamp(left, margin, maxLeft),
+    top: clamp(top, margin, maxTop),
+  };
+}
+
+export function resetPanelPosition(panel) {
+  if (!panel) return;
+  panel.style.left = "";
+  panel.style.top = "";
+  panel.style.right = "";
+  panel.style.bottom = "";
+}
+
 export function applyPanelPosition(panel, position) {
   if (!panel) return;
-  if (position && Number.isFinite(Number(position.left)) && Number.isFinite(Number(position.top))) {
-    const margin = 8;
-    const maxLeft = Math.max(margin, window.innerWidth - panel.offsetWidth - margin);
-    const maxTop = Math.max(margin, window.innerHeight - panel.offsetHeight - margin);
-    panel.style.left = `${clamp(Number(position.left), margin, maxLeft)}px`;
-    panel.style.top = `${clamp(Number(position.top), margin, maxTop)}px`;
+  const view =
+    panel.ownerDocument?.defaultView || globalThis.window || globalThis;
+  if (
+    position &&
+    Number.isFinite(Number(position.left)) &&
+    Number.isFinite(Number(position.top))
+  ) {
+    const next = clampPanelPosition(
+      Number(position.left),
+      Number(position.top),
+      panel.offsetWidth || 0,
+      panel.offsetHeight || 0,
+      view.innerWidth || 1024,
+      view.innerHeight || 768,
+      PANEL.margin
+    );
+    panel.style.left = `${next.left}px`;
+    panel.style.top = `${next.top}px`;
     panel.style.right = "auto";
   } else {
-    panel.style.left = "";
-    panel.style.top = "";
-    panel.style.right = "";
+    resetPanelPosition(panel);
   }
 }
 
 export function bindDrag(handle, panel, onEnd) {
-  if (!handle || !panel || typeof handle.addEventListener !== "function") return;
+  if (!handle || !panel || typeof handle.addEventListener !== "function") {
+    return () => {};
+  }
+  const view =
+    panel.ownerDocument?.defaultView || globalThis.window || globalThis;
+  const keyTarget = handle.querySelector?.("[data-drag-handle]") || handle;
   handle.style.touchAction = "none";
-  handle.addEventListener("pointerdown", (event) => {
-    if (event.target.closest?.("button, a, input")) return;
-    const rect = panel.getBoundingClientRect();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const offsetX = startX - rect.left;
-    const offsetY = startY - rect.top;
+  let active = null;
+  let last = null;
+
+  const moveTo = (left, top) => {
+    const next = clampPanelPosition(
+      left,
+      top,
+      panel.offsetWidth || 0,
+      panel.offsetHeight || 0,
+      view.innerWidth || 1024,
+      view.innerHeight || 768,
+      PANEL.margin
+    );
+    panel.style.left = `${next.left}px`;
+    panel.style.top = `${next.top}px`;
     panel.style.right = "auto";
-    const move = (moveEvent) => {
-      const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
-      const maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
-      panel.style.left = `${clamp(moveEvent.clientX - offsetX, 8, maxLeft)}px`;
-      panel.style.top = `${clamp(moveEvent.clientY - offsetY, 8, maxTop)}px`;
+    last = next;
+    return next;
+  };
+
+  const onPointerDown = (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const interactive = event.target.closest?.(
+      "button, a, input, select, textarea"
+    );
+    if (interactive && !interactive.hasAttribute?.("data-drag-handle")) {
+      return;
+    }
+    const rect = panel.getBoundingClientRect();
+    active = {
+      id: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      onEnd?.({
-        left: Number.parseFloat(panel.style.left) || rect.left,
-        top: Number.parseFloat(panel.style.top) || rect.top,
-      });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up, { once: true });
+    last = { left: rect.left, top: rect.top };
+    panel.style.right = "auto";
+    panel.style.left = `${rect.left}px`;
+    panel.style.top = `${rect.top}px`;
+    try {
+      handle.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture is best-effort.
+    }
+    handle.addEventListener("pointermove", onPointerMove);
+    handle.addEventListener("pointerup", onPointerUp);
+    handle.addEventListener("pointercancel", onPointerUp);
     event.preventDefault();
-  });
+  };
+
+  const onPointerMove = (event) => {
+    if (!active || event.pointerId !== active.id) return;
+    moveTo(event.clientX - active.offsetX, event.clientY - active.offsetY);
+  };
+
+  const onPointerUp = (event) => {
+    if (!active || event.pointerId !== active.id) return;
+    const id = active.id;
+    active = null;
+    handle.removeEventListener("pointermove", onPointerMove);
+    handle.removeEventListener("pointerup", onPointerUp);
+    handle.removeEventListener("pointercancel", onPointerUp);
+    try {
+      handle.releasePointerCapture?.(id);
+    } catch {
+      // Ignore pointer-capture release failures.
+    }
+    onEnd?.(
+      last || {
+        left: Number.parseFloat(panel.style.left) || 0,
+        top: Number.parseFloat(panel.style.top) || 0,
+      }
+    );
+  };
+
+  const onKeyDown = (event) => {
+    if (
+      !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home"].includes(
+        event.key
+      )
+    ) {
+      return;
+    }
+    event.preventDefault();
+    if (event.key === "Home") {
+      resetPanelPosition(panel);
+      last = null;
+      onEnd?.(null);
+      return;
+    }
+    const rect = panel.getBoundingClientRect();
+    const step = event.shiftKey ? 32 : 8;
+    const dx =
+      event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    const dy =
+      event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    onEnd?.(moveTo(rect.left + dx, rect.top + dy));
+  };
+
+  const onDoubleClick = (event) => {
+    if (event.target.closest?.("button, a, input, select, textarea")) {
+      return;
+    }
+    resetPanelPosition(panel);
+    last = null;
+    onEnd?.(null);
+  };
+
+  handle.addEventListener("pointerdown", onPointerDown);
+  handle.addEventListener("dblclick", onDoubleClick);
+  keyTarget.addEventListener("keydown", onKeyDown);
+
+  return () => {
+    handle.removeEventListener("pointerdown", onPointerDown);
+    handle.removeEventListener("dblclick", onDoubleClick);
+    keyTarget.removeEventListener("keydown", onKeyDown);
+    handle.removeEventListener("pointermove", onPointerMove);
+    handle.removeEventListener("pointerup", onPointerUp);
+    handle.removeEventListener("pointercancel", onPointerUp);
+  };
 }
 
 function ensureStyles() {
@@ -1338,6 +1478,7 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
   const root = document.createElement("div");
   root.id = APP_ID;
   document.body.appendChild(root);
+  const view = document.defaultView || globalThis.window;
 
   const t = () => makeT(state.language);
 
@@ -1487,16 +1628,27 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
 
   const render = () => {
     root.innerHTML = state.minimized ? renderPill(state) : renderShell(state);
-    if (!state.minimized) {
-      const panel = root.querySelector("[data-panel]");
-      const drag = root.querySelector("[data-drag]");
-      applyPanelPosition(panel, state.panelPos);
-      bindDrag(drag, panel, (position) => {
-        state.panelPos = position;
-        onChange();
-      });
+    if (state.minimized) {
+      const pill = root.querySelector("[data-pill]");
+      applyPanelPosition(pill, state.panelPos);
+      return;
     }
+    const panel = root.querySelector("[data-panel]");
+    const drag = root.querySelector("[data-drag]");
+    applyPanelPosition(panel, state.panelPos);
+    bindDrag(drag, panel, (position) => {
+      state.panelPos = position;
+      onChange();
+    });
   };
+
+  const onResize = () => {
+    const target = root.querySelector(
+      state.minimized ? "[data-pill]" : "[data-panel]"
+    );
+    if (target) applyPanelPosition(target, state.panelPos);
+  };
+  view?.addEventListener?.("resize", onResize);
 
   const openSettings = () => {
     const dialog = showDialog({
@@ -1706,6 +1858,7 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
       root.removeEventListener("input", onInput);
       clearTimeout(toastTimer);
       toastTimer = null;
+      view?.removeEventListener?.("resize", onResize);
       root.querySelectorAll(".ux-toast").forEach((node) => node.remove());
       root.remove();
       document.getElementById(STYLE_ID)?.remove();

@@ -118,6 +118,7 @@ export const I18N = {
   en: {
     appTitle: "Unfollow X",
     subtitle: "Find accounts that do not follow you back.",
+    movePanel: "Move panel. Arrow keys move, Home resets.",
     scanBtn: "Scan now",
     scanning: "Scanning…",
     loadingFollowing: "Loading your following list…",
@@ -270,6 +271,7 @@ export const I18N = {
   tr: {
     appTitle: "Unfollow X",
     subtitle: "Seni geri takip etmeyenleri bul.",
+    movePanel: "Paneli taşı. Ok tuşları taşır, Home sıfırlar.",
     scanBtn: "Taramayı başlat",
     scanning: "Taranıyor…",
     loadingFollowing: "Takip listen yükleniyor…",

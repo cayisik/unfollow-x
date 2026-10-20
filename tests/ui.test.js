@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import {
   CSS,
+  bindDrag,
+  clampPanelPosition,
+  renderShell,
   renderResultsView,
   getDisplayUsers,
   pruneSelection,
@@ -281,4 +284,75 @@ test("CSS exposes both X themes, Chirp, and no glass effects", () => {
   assert.match(CSS, /data-reduce-motion/);
   assert.doesNotMatch(CSS, /backdrop-filter/);
   assert.doesNotMatch(CSS, /linear-gradient/);
+});
+
+test("shell exposes a keyboard-accessible drag grip", () => {
+  const html = renderShell(state());
+  assert.match(html, /data-drag-handle/);
+  assert.match(
+    html,
+    /aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Home"/
+  );
+  assert.match(html, /ux-mark/);
+  assert.match(html, /Unfollow X/);
+});
+
+test("clampPanelPosition keeps the panel inside the viewport margin", () => {
+  assert.deepEqual(
+    clampPanelPosition(-20, -20, 424, 600, 1200, 900, 16),
+    { left: 16, top: 16 }
+  );
+  assert.deepEqual(
+    clampPanelPosition(9999, 9999, 424, 600, 1200, 900, 16),
+    { left: 760, top: 284 }
+  );
+});
+
+test("drag grip moves with arrow keys and Home resets", () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="ux-app"><header data-drag><button data-drag-handle></button></header><div data-panel></div></div></body></html>'
+  );
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const panel = dom.window.document.querySelector("[data-panel]");
+  Object.defineProperty(panel, "offsetWidth", { value: 424, configurable: true });
+  Object.defineProperty(panel, "offsetHeight", { value: 600, configurable: true });
+  panel.getBoundingClientRect = () => ({
+    left: 100,
+    top: 100,
+    width: 424,
+    height: 600,
+  });
+  const handle = dom.window.document.querySelector("[data-drag]");
+  const grip = dom.window.document.querySelector("[data-drag-handle]");
+  const saved = [];
+  const cleanup = bindDrag(handle, panel, (position) => saved.push(position));
+
+  grip.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+    })
+  );
+  assert.equal(panel.style.left, "108px");
+  assert.equal(panel.style.top, "100px");
+
+  grip.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      shiftKey: true,
+      bubbles: true,
+    })
+  );
+  assert.equal(panel.style.top, "132px");
+
+  grip.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true })
+  );
+  assert.equal(panel.style.left, "");
+  assert.equal(panel.style.top, "");
+  assert.equal(saved.at(-1), null);
+
+  cleanup();
+  dom.window.close();
 });
