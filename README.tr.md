@@ -261,32 +261,6 @@ Otomatik test paketi gerçek tarayıcı testinin yerini tutmaz. X'in canlı ön 
 
 ---
 
-## Manuel doğrulama kontrol listesi
-
-Bir derlemeyi yayına hazır saymadan önce bunu giriş yapılmış bir x.com oturumunda çalıştır. Bu kontroller sürüm açısından kritik akışları kapsar:
-
-- [ ] Ana sayfada yapıştır; panel açılır ve Takip Edilenler sayfasına gider.
-- [ ] Küçük bir hesabı tara (20'den az takip); DOM yedeği veya API yolu tamamlanır.
-- [ ] Daha büyük bir hesabı tara; ilerleme toplamı profil sayısıyla eşleşir.
-- [ ] Tarama ortasında duraklat/devam et/iptal et; yeniden yapıştırdıktan sonra bir kontrol noktası görünür.
-- [ ] Filtreleri, aramayı, tümünü seç'i ve kopyalamayı test et.
-- [ ] Bir hesabı takipten çıkar; satırın kaybolduğunu ve sayının güncellendiğini doğrula.
-- [ ] Bir `429` simüle et (isteğe bağlı DevTools engeli) ve geri sayımı doğrula.
-- [ ] TR/EN arasında geçiş yap; sayfayı yenile ve dilin korunduğunu doğrula.
-- [ ] X'i açık ve koyu arasında değiştir; panel geçerli çalıştırmayı kaybetmeden izler.
-- [ ] X yüksek kontrast ve azaltılmış hareketi etkinleştir; kenarlıklar, odak halkaları ve animasyon davranışı buna göre değişir.
-- [ ] Başlıktan sürükle, klavyeyle hareket ettir, `Home` tuşuna bas, pencereyi yeniden boyutlandır ve yeniden yapıştır; panel görünür kalır.
-- [ ] Başarılı bir takipten çıkarma satırı üstü çizili/"çıktı" damgasını alır; başarısız olan almaz.
-
-Ayrıca şunları doğrula:
-
-- [ ] Panel sürüklenebilir ve küçültülebilir; konumu sayfa yenilendikten sonra korunur.
-- [ ] Paneli kapatmak `fetch` / `XMLHttpRequest` yöntemlerini geri yükler ve arayüzü kaldırır.
-- [ ] Kısmi veya doğrulanmamış bir tarama takipten çıkarmayı başlatamaz.
-- [ ] İkinci bir yapıştırma, yinelenen kancalar bırakmak yerine önceki paneli temizler.
-
----
-
 ## Bilinen sınırlamalar
 
 - X'in ön yüzü derlenmiş bir SPA'dır; sorgu kimlikleri, özellik bayrakları, yanıt şekilleri ve seçiciler her an değişebilir.

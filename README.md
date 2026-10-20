@@ -265,36 +265,6 @@ The automated suite does not replace a real browser test. X's live frontend, coo
 
 ---
 
-## Manual verification checklist
-
-Run this on a logged-in x.com session before treating a build as release-ready. These checks cover the release-critical flows:
-
-- [ ] Paste on the home page; the panel opens and navigates to the Following page.
-- [ ] Scan a small account (fewer than 20 following); the DOM fallback or API path completes.
-- [ ] Scan a larger account; the progress total matches the profile count.
-- [ ] Pause/resume/cancel mid-scan; a checkpoint appears after re-pasting.
-- [ ] Toggle filters, search, select all, and copy.
-- [ ] Unfollow one account; confirm the row disappears and the count updates.
-- [ ] Simulate a `429` (optional DevTools block) and confirm the countdown.
-- [ ] Switch TR/EN; reload and confirm the language persists.
-- [ ] Toggle X between light and dark; the panel follows without losing the
-      current run.
-- [ ] Enable X high contrast and reduced motion; borders, focus rings, and
-      animation behavior change accordingly.
-- [ ] Drag by the header, move with the keyboard, press `Home`, resize the
-      window, and re-paste; the panel stays visible.
-- [ ] A successful unfollow row gets the strike/“çıktı” stamp; a failure does
-      not.
-
-Also confirm:
-
-- [ ] The panel can be dragged and minimized, and its position survives a reload.
-- [ ] Closing the panel restores `fetch` / `XMLHttpRequest` and removes the UI.
-- [ ] A partial or unverified scan cannot start an unfollow.
-- [ ] A second paste cleans up the previous panel instead of leaving duplicate hooks.
-
----
-
 ## Known limitations
 
 - X's frontend is a compiled SPA; query IDs, feature flags, response shapes, and selectors can change at any time.
