@@ -237,7 +237,7 @@ Checkpoints and last scans expire after 24 hours and are tied to the detected ha
 
 ## Development
 
-The deliverable is generated from ES modules under `src/` and bundled into a single IIFE by esbuild.
+The deliverable is generated from ES modules under `src/` and bundled into a single IIFE by esbuild. The development toolchain requires Node.js 20 or newer.
 
 ```bash
 npm install
@@ -265,7 +265,7 @@ The automated suite does not replace a real browser test. X's live frontend, coo
 
 ## Manual verification checklist
 
-Run this on a logged-in x.com session before treating a build as release-ready. These are the checks from the design spec (§13.2):
+Run this on a logged-in x.com session before treating a build as release-ready. These checks cover the release-critical flows:
 
 - [ ] Paste on the home page; the panel opens and navigates to the Following page.
 - [ ] Scan a small account (fewer than 20 following); the DOM fallback or API path completes.
@@ -301,3 +301,9 @@ Also confirm:
 - Resuming after a reload may rescan from the beginning if the captured cursor cannot be reused with a fallback template. The merge is deduplicated, so this is slower but safe.
 - The tool is desktop-oriented. Mobile layouts and unusual X experiments are not guaranteed.
 - Bulk automation is inherently risky. The defaults are conservative, not a guarantee.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -2,7 +2,28 @@
   "name": "unfollow-x",
   "version": "0.2.0",
   "private": true,
+  "description": "A single-file console tool that finds and unfollows X accounts that do not follow you back.",
   "type": "module",
+  "license": "MIT",
+  "author": "cayisik",
+  "homepage": "https://github.com/cayisik/unfollow-x",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cayisik/unfollow-x.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cayisik/unfollow-x/issues"
+  },
+  "keywords": [
+    "x",
+    "twitter",
+    "unfollow",
+    "devtools",
+    "console"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test tests/*.test.js",
