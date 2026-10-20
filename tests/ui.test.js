@@ -7,6 +7,7 @@ import {
   clampPanelPosition,
   renderShell,
   renderResultsView,
+  renderRow,
   getDisplayUsers,
   pruneSelection,
   settingsHTML,
@@ -355,4 +356,17 @@ test("drag grip moves with arrow keys and Home resets", () => {
 
   cleanup();
   dom.window.close();
+});
+
+test("results view uses one hero count and inline secondary stats", () => {
+  const html = renderResultsView(state());
+  assert.match(html, /data-result-count/);
+  assert.match(html, /data-result-unit/);
+  assert.match(html, /data-selected-count/);
+  assert.doesNotMatch(html, /ux-statline/);
+});
+
+test("selected rows carry the selected state", () => {
+  const s = state();
+  assert.match(renderRow(s.users[0], s), /is-selected/);
 });

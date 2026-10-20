@@ -558,9 +558,9 @@ export function renderRow(user, state) {
   const key = keyOf(user);
   const selected = setOf(state.selected).has(key);
   const hidden = isHidden(user, setOf(state.hidden));
-  return `<div class="ux-row${hidden ? " is-hidden" : ""}" data-row="${escapeAttr(
-    key
-  )}">
+  return `<div class="ux-row${selected ? " is-selected" : ""}${
+    hidden ? " is-hidden" : ""
+  }" data-row="${escapeAttr(key)}">
     <input type="checkbox" data-select="${escapeAttr(key)}" ${
     selected ? "checked" : ""
   } aria-label="${escapeAttr(user.handle)}">
@@ -655,8 +655,13 @@ export function renderResultsView(state) {
   return `<section class="ux-view ux-results" data-view="results">
     <div class="ux-results-head">
       <div>
-        <h2 data-result-count>${escapeHTML(countLabel(state, t))}</h2>
-        <p>${escapeHTML(t("reviewHint"))}</p>
+        <span class="ux-eyebrow">${escapeHTML(t("auditKicker"))}</span>
+        <div class="ux-hero-count">
+          <strong data-result-count>${users.length}</strong>
+          <span data-result-unit>${escapeHTML(
+            users.length === 1 ? t("nonFollowersUnitOne") : t("nonFollowersUnit")
+          )}</span>
+        </div>
       </div>
       <div class="ux-results-links">
         ${
@@ -670,6 +675,19 @@ export function renderResultsView(state) {
           t("rescan")
         )}</button>
       </div>
+    </div>
+    <div class="ux-subline">
+      <span data-selected-count>${escapeHTML(
+        t("selectedCount", { count: selectedCount })
+      )}</span>
+      <span>${escapeHTML(
+        t("scanNotice", {
+          count: Number(state.scan?.scanned) || (state.users || []).length,
+        })
+      )}</span>
+      <span data-hidden-count>${escapeHTML(
+        t("hiddenCount", { count: hidden.size })
+      )}</span>
     </div>
     ${warnings.join("")}
     <label class="ux-search">${ICONS.search}<input data-search value="${escapeAttr(
@@ -710,9 +728,6 @@ export function renderResultsView(state) {
         t("unfollow")
       )}${selectedCount ? ` (${selectedCount})` : ""}</button>
     </div>
-    <p class="ux-hint" data-selected-count>${escapeHTML(
-      t("selectedCount", { count: selectedCount })
-    )}</p>
   </section>`;
 }
 
@@ -1491,12 +1506,25 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
         : renderEmpty(state, t());
     }
     const count = root.querySelector("[data-result-count]");
-    if (count) count.textContent = countLabel(state, t());
+    if (count) count.textContent = String(users.length);
+    const unit = root.querySelector("[data-result-unit]");
+    if (unit) {
+      unit.textContent =
+        users.length === 1
+          ? t()("nonFollowersUnitOne")
+          : t()("nonFollowersUnit");
+    }
     const selectedCount = visibleSelectedCount(state);
     const selectedLabel = root.querySelector("[data-selected-count]");
     if (selectedLabel) {
       selectedLabel.textContent = t()("selectedCount", {
         count: selectedCount,
+      });
+    }
+    const hiddenCount = root.querySelector("[data-hidden-count]");
+    if (hiddenCount) {
+      hiddenCount.textContent = t()("hiddenCount", {
+        count: setOf(state.hidden).size,
       });
     }
     const unfollow = root.querySelector('[data-action="unfollow"]');
