@@ -59,7 +59,7 @@ test("coverageFrom flags missing followed_by", () => {
 
 test("boot mounts the panel, resolves the handle, and cleans up", () => {
   const dom = new JSDOM(
-    '<!doctype html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body>',
+    '<!doctype html><html data-theme="light"><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
     { url: "https://x.com/home" }
   );
   const previous = {
@@ -95,6 +95,10 @@ test("boot mounts the panel, resolves the handle, and cleans up", () => {
     const state = boot();
     assert.equal(state.viewer.handle, "me");
     assert.ok(dom.window.document.getElementById("ux-app"));
+    assert.equal(
+      dom.window.document.getElementById("ux-app").dataset.theme,
+      "light"
+    );
     assert.equal(typeof globalThis.__uxCleanup, "function");
 
     state.cleanup();

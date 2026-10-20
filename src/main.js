@@ -38,6 +38,7 @@ import {
 } from "./dom.js";
 import { runUnfollowQueue } from "./unfollow.js";
 import { mountUI, showDialog, keyOf } from "./ui.js";
+import { observeXAppearance } from "./theme.js";
 
 let ACTIVE = null;
 
@@ -277,6 +278,7 @@ export function boot() {
     onAction: (action, payload) => handleAction(action, payload),
     onChange: () => persist(state),
   });
+  const appearance = observeXAppearance(ui.root);
   state.ui = ui;
 
   state.checkpoint = loadCheckpoint(undefined, state.viewer.handle);
@@ -1184,6 +1186,7 @@ export function boot() {
     clearTimeout(pauseTimer);
     document.removeEventListener("visibilitychange", onVisibility);
     uninstallCapture();
+    appearance.stop();
     ui.destroy();
     if (globalThis.__uxCleanup === cleanup) {
       delete globalThis.__uxCleanup;
