@@ -500,6 +500,13 @@ function countLabel(state, t) {
   return t("foundCount", { count });
 }
 
+function transportLabel(run) {
+  const transport = String(run?.transport || "mutation").toLowerCase();
+  if (transport === "rest") return "REST";
+  if (transport === "ui") return "UI";
+  return "API";
+}
+
 function profileUrl(handle) {
   return `https://x.com/${encodeURIComponent(handle)}`;
 }
@@ -745,7 +752,7 @@ function renderIdleView(state) {
     <div class="ux-card">
       <div class="ux-card-line">
         <span class="ux-live-dot"></span>
-        <strong>@${escapeHTML(handle || "—")}</strong>
+        <strong>${handle ? `@${escapeHTML(handle)}` : escapeHTML(t("manualHandle"))}</strong>
         <span class="ux-muted">${escapeHTML(t("navigateHint"))}</span>
       </div>
       <button class="ux-btn ux-btn-primary ux-btn-block" data-action="scan">${ICONS.search}${escapeHTML(
@@ -757,14 +764,16 @@ function renderIdleView(state) {
         checkpoint
           ? `<button class="ux-btn ux-btn-soft" data-action="resume">${escapeHTML(
               t("resumeAfter")
-            )} <span class="ux-muted">· ${checkpoint.users?.length || 0}</span></button>`
+            )}<span class="ux-muted">${checkpoint.users?.length || 0}</span></button>`
           : ""
       }
       ${
         lastScan
           ? `<button class="ux-btn ux-btn-ghost" data-action="show-last">${escapeHTML(
               t("showLastScan")
-            )} · ${escapeHTML(timeAgo(lastScan.savedAt, state.language))}</button>`
+            )}<span class="ux-muted">${escapeHTML(
+              timeAgo(lastScan.savedAt, state.language)
+            )}</span></button>`
           : ""
       }
       ${
@@ -826,7 +835,7 @@ function renderScanView(state) {
       <button class="ux-btn ux-btn-soft" data-action="${
         paused ? "resume-scan" : "pause-scan"
       }">${escapeHTML(paused ? t("resume") : t("pause"))}</button>
-      <button class="ux-btn ux-btn-danger" data-action="cancel-scan">${escapeHTML(
+      <button class="ux-btn ux-btn-soft" data-action="cancel-scan">${escapeHTML(
         t("cancel")
       )}</button>
     </div>
@@ -839,17 +848,21 @@ function renderUnfollowLog(run, t) {
     ? log
         .map(
           (entry) =>
-            `<div class="ux-log-row${entry.ok ? "" : " is-fail"}"><span class="ux-dot"></span><span>@${escapeHTML(
-              entry.handle || "—"
-            )}</span><span>${escapeHTML(
-              entry.ok ? "ok" : entry.reason || "fail"
+            `<div class="ux-log-row ${
+              entry.ok ? "is-ok" : "is-fail"
+            }"><span class="ux-dot"></span><span${
+              entry.ok ? ' class="ux-strike"' : ""
+            }>@${escapeHTML(entry.handle || "?")}</span><span class="ux-stamp">${escapeHTML(
+              entry.ok
+                ? t("unfollowedStamp")
+                : entry.reason || t("failedStamp")
             )}</span></div>`
         )
         .join("")
     : `<div class="ux-empty">${escapeHTML(t("unfollowHint"))}</div>`;
 }
 
-function renderUnfollowView(state) {
+export function renderUnfollowView(state) {
   const t = makeT(state.language);
   const run = state.unfollow || {};
   const total = Number(run.total) || 0;
@@ -862,26 +875,33 @@ function renderUnfollowView(state) {
         <span class="ux-eyebrow" data-unfollow-eyebrow>${escapeHTML(
           paused ? t("paused") : t("unfollowing")
         )}</span>
-        <h2 data-unfollow-count>${escapeHTML(
-          String(done)
-        )} / ${escapeHTML(String(total))}</h2>
+        <div class="ux-hero-count">
+          <strong data-unfollow-count>${escapeHTML(
+            String(done)
+          )} / ${escapeHTML(String(total))}</strong>
+          <span>${escapeHTML(t("processedUnit"))}</span>
+        </div>
       </div>
       <span class="ux-source-badge" data-unfollow-transport>${escapeHTML(
-        String(run.transport || "mutation").toUpperCase()
+        transportLabel(run)
       )}</span>
     </div>
     <div class="ux-bar"><i data-unfollow-progress style="width:${percent}%"></i></div>
     <div class="ux-current" data-unfollow-current>${escapeHTML(
-      t("currently", { handle: run.current || "—" })
+      t("currently", { handle: run.current || "?" })
     )}</div>
     <div class="ux-next" data-next>${escapeHTML(countdownText(state))}</div>
     <div class="ux-statline">
-      <div class="ux-stat"><strong data-unfollow-ok>${Number(run.ok) || 0}</strong><span>ok</span></div>
-      <div class="ux-stat"><strong data-unfollow-fail>${Number(run.fail) || 0}</strong><span>fail</span></div>
+      <div class="ux-stat"><strong data-unfollow-ok>${
+        Number(run.ok) || 0
+      }</strong><span>${escapeHTML(t("statOk"))}</span></div>
+      <div class="ux-stat"><strong data-unfollow-fail>${
+        Number(run.fail) || 0
+      }</strong><span>${escapeHTML(t("statFail"))}</span></div>
       <div class="ux-stat"><strong data-unfollow-left>${Math.max(
         0,
         total - done
-      )}</strong><span>left</span></div>
+      )}</strong><span>${escapeHTML(t("statLeft"))}</span></div>
     </div>
     <div class="ux-log" data-unfollow-log>${renderUnfollowLog(run, t)}</div>
     <p class="ux-hint" data-unfollow-hint>${escapeHTML(
@@ -891,7 +911,7 @@ function renderUnfollowView(state) {
       <button class="ux-btn ux-btn-soft" data-unfollow-toggle data-action="${
         paused ? "resume-unfollow" : "pause-unfollow"
       }">${escapeHTML(paused ? t("resume") : t("pause"))}</button>
-      <button class="ux-btn ux-btn-danger" data-action="cancel-unfollow">${escapeHTML(
+      <button class="ux-btn ux-btn-soft" data-action="cancel-unfollow">${escapeHTML(
         t("cancel")
       )}</button>
     </div>
@@ -999,10 +1019,10 @@ export function renderShell(state) {
 export function pillLabel(state) {
   const t = makeT(state.language);
   if (state.mode === "scanning") {
-    return `${t("pillScanning")} · ${Number(state.scan?.scanned) || (state.users || []).length}`;
+    return `${t("pillScanning")} ${Number(state.scan?.scanned) || (state.users || []).length}`;
   }
   if (state.mode === "unfollowing") {
-    return `${t("pillUnfollowing")} · ${Number(state.unfollow?.ok) || 0}/${Number(
+    return `${t("pillUnfollowing")} ${Number(state.unfollow?.ok) || 0}/${Number(
       state.unfollow?.total
     ) || 0}`;
   }
@@ -1055,7 +1075,7 @@ export function settingsHTML(timings = {}, language = "en") {
   const seconds = (value) => (Number(value) / 1000).toFixed(1);
   return `<div class="ux-settings" data-settings-body>
     <div class="ux-settings-group">
-      <div class="ux-settings-title">Scan</div>
+      <div class="ux-settings-title">${escapeHTML(t("settingsScan"))}</div>
       ${field(t("minScanDelay"), "scanDelayMin", seconds(merged.scanDelayMin), {
         min: 0.5,
         max: 60,
@@ -1081,7 +1101,7 @@ export function settingsHTML(timings = {}, language = "en") {
       })}
     </div>
     <div class="ux-settings-group">
-      <div class="ux-settings-title">Unfollow</div>
+      <div class="ux-settings-title">${escapeHTML(t("settingsUnfollow"))}</div>
       ${field(
         t("minUnfollowDelay"),
         "unfollowDelayMin",
@@ -1598,11 +1618,11 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     if (count) count.textContent = `${done} / ${total}`;
     const transport = root.querySelector("[data-unfollow-transport]");
     if (transport) {
-      transport.textContent = String(run.transport || "mutation").toUpperCase();
+      transport.textContent = transportLabel(run);
     }
     const current = root.querySelector("[data-unfollow-current]");
     if (current) {
-      current.textContent = t("currently", { handle: run.current || "—" });
+      current.textContent = t("currently", { handle: run.current || "?" });
     }
     const next = root.querySelector("[data-next]");
     if (next) next.textContent = countdownText(state);

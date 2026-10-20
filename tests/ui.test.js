@@ -8,6 +8,7 @@ import {
   renderShell,
   renderResultsView,
   renderRow,
+  renderUnfollowView,
   getDisplayUsers,
   pruneSelection,
   settingsHTML,
@@ -369,4 +370,46 @@ test("results view uses one hero count and inline secondary stats", () => {
 test("selected rows carry the selected state", () => {
   const s = state();
   assert.match(renderRow(s.users[0], s), /is-selected/);
+});
+
+test("unfollow ledger uses localized stats and cancellation stamps", () => {
+  const s = state();
+  s.mode = "unfollowing";
+  s.language = "tr";
+  s.unfollow = {
+    total: 4,
+    ok: 1,
+    fail: 1,
+    current: "alice",
+    transport: "mutation",
+    log: [
+      { handle: "alice", ok: true },
+      { handle: "bob", ok: false, reason: "hata" },
+    ],
+  };
+  const html = renderUnfollowView(s);
+  assert.match(html, /başarılı/);
+  assert.match(html, /hata/);
+  assert.match(html, /kalan/);
+  assert.match(html, /ux-strike/);
+  assert.match(html, /çıktı/);
+  assert.match(html, />API</);
+  assert.doesNotMatch(html, /MUTATION/);
+});
+
+test("pill labels avoid middle dots", () => {
+  const s = state();
+  s.mode = "scanning";
+  s.scan = { scanned: 3 };
+  assert.doesNotMatch(pillLabel(s), /·/);
+  s.mode = "unfollowing";
+  s.unfollow = { ok: 1, total: 4 };
+  assert.doesNotMatch(pillLabel(s), /·/);
+});
+
+test("settings group titles are localized", () => {
+  const html = settingsHTML(state().timings, "tr");
+  assert.match(html, /Tarama/);
+  assert.match(html, /Takipten çıkarma/);
+  assert.doesNotMatch(html, />Scan</);
 });
