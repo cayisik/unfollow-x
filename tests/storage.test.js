@@ -1,7 +1,13 @@
 import {
+  clearActivity,
+  clearActivityScan,
+  loadActivity,
+  loadActivityScan,
   loadState,
   persistState,
   loadCheckpoint,
+  saveActivity,
+  saveActivityScan,
   saveCheckpoint,
   clearCheckpoint,
   loadLastScan,
@@ -17,6 +23,7 @@ function memoryStorage() {
     getItem: (k) => (map.has(k) ? map.get(k) : null),
     setItem: (k, v) => map.set(k, String(v)),
     removeItem: (k) => map.delete(k),
+    clear: () => map.clear(),
   };
 }
 
@@ -82,4 +89,52 @@ test("storage errors never throw", () => {
   assert.doesNotThrow(() => persistState(broken, { language: "en" }));
   assert.doesNotThrow(() => saveCheckpoint(broken, { users: [] }));
   assert.doesNotThrow(() => clearCheckpoint(broken));
+});
+
+test("activity cache is viewer-bound and drops entries older than 24h", () => {
+  const storage = memoryStorage();
+  const now = Date.now();
+  saveActivity(storage, "me", {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: now - 1000,
+      checkedAt: now,
+    },
+    "2": {
+      id: "2",
+      handle: "bob",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: now - 25 * 60 * 60 * 1000,
+    },
+  });
+  assert.deepEqual(Object.keys(loadActivity(storage, "me")), ["1"]);
+  assert.deepEqual(loadActivity(storage, "other"), {});
+});
+
+test("activity cache can be cleared", () => {
+  const storage = memoryStorage();
+  saveActivity(storage, "me", {
+    "1": { id: "1", handle: "alice", state: "known", lastTweetAt: 0, checkedAt: Date.now() },
+  });
+  assert.equal(clearActivity(storage), true);
+  assert.deepEqual(loadActivity(storage, "me"), {});
+});
+
+test("activity scan checkpoint is viewer-bound and fresh", () => {
+  const storage = memoryStorage();
+  const scan = {
+    viewerHandle: "me",
+    startedAt: Date.now(),
+    checked: 10,
+    total: 20,
+    complete: false,
+  };
+  saveActivityScan(storage, scan);
+  assert.equal(loadActivityScan(storage, "me").checked, 10);
+  assert.equal(loadActivityScan(storage, "other"), null);
+  assert.equal(clearActivityScan(storage), true);
+  assert.equal(loadActivityScan(storage, "me"), null);
 });

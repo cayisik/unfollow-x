@@ -2,6 +2,9 @@ import {
   STORAGE_KEY,
   CHECKPOINT_KEY,
   LAST_SCAN_KEY,
+  ACTIVITY_KEY,
+  ACTIVITY_SCAN_KEY,
+  ACTIVITY_TTL,
   STATE_TTL,
 } from "./config.js";
 import { safeJsonParse } from "./utils.js";
@@ -122,4 +125,83 @@ export function saveLastScan(storage = defaultStorage(), snapshot = {}) {
   const next = { ...snapshot };
   if (!Number.isFinite(Number(next.savedAt))) next.savedAt = Date.now();
   return writeJson(storage, LAST_SCAN_KEY, next);
+}
+
+function isFreshActivity(entry, now = Date.now()) {
+  const checkedAt = Number(entry?.checkedAt);
+  return (
+    Number.isFinite(checkedAt) &&
+    checkedAt <= now + 60_000 &&
+    now - checkedAt < ACTIVITY_TTL
+  );
+}
+
+function freshActivityEntries(entries, now = Date.now()) {
+  const fresh = {};
+  for (const [key, entry] of Object.entries(entries || {})) {
+    if (isFreshActivity(entry, now)) fresh[key] = entry;
+  }
+  return fresh;
+}
+
+export function loadActivity(storage = defaultStorage(), viewerHandle = "") {
+  const parsed = readJson(storage, ACTIVITY_KEY);
+  if (!parsed || !parsed.entries || typeof parsed.entries !== "object") {
+    return {};
+  }
+  if (!sameViewer(viewerHandle, parsed.viewerHandle)) return {};
+  return freshActivityEntries(parsed.entries);
+}
+
+export function saveActivity(
+  storage = defaultStorage(),
+  viewerHandle = "",
+  entries = {}
+) {
+  if (!storage) return false;
+  const now = Date.now();
+  return writeJson(storage, ACTIVITY_KEY, {
+    version: 1,
+    viewerHandle,
+    savedAt: now,
+    entries: freshActivityEntries(entries, now),
+  });
+}
+
+export function clearActivity(storage = defaultStorage()) {
+  if (!storage) return false;
+  try {
+    storage.removeItem(ACTIVITY_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadActivityScan(
+  storage = defaultStorage(),
+  viewerHandle = ""
+) {
+  const scan = readJson(storage, ACTIVITY_SCAN_KEY);
+  if (!scan) return null;
+  if (!isFresh(scan.savedAt)) return null;
+  if (!sameViewer(viewerHandle, scan.viewerHandle)) return null;
+  return scan;
+}
+
+export function saveActivityScan(storage = defaultStorage(), scan = {}) {
+  if (!storage) return false;
+  const next = { ...scan };
+  if (!Number.isFinite(Number(next.savedAt))) next.savedAt = Date.now();
+  return writeJson(storage, ACTIVITY_SCAN_KEY, next);
+}
+
+export function clearActivityScan(storage = defaultStorage()) {
+  if (!storage) return false;
+  try {
+    storage.removeItem(ACTIVITY_SCAN_KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }
