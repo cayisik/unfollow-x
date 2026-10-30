@@ -292,6 +292,8 @@ export function resetCapture() {
   capturedActivity = null;
 }
 
+// Wait for the Following template only. Activity capture is read
+// opportunistically via getCapturedActivity().
 export function waitForCapture(timeoutMs = 15000, pollMs = 250) {
   return new Promise((resolve) => {
     const started = Date.now();
