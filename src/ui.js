@@ -7,6 +7,8 @@ import {
   PANEL,
   VERSION,
   ACTIVITY_DEFAULT_DAYS,
+  ACTIVITY_MAX_DAYS,
+  ACTIVITY_MIN_DAYS,
   makeT,
 } from "./config.js";
 import {
@@ -707,6 +709,31 @@ function activityNote(state, user, t) {
   });
 }
 
+function activityListSignature(state, users) {
+  const selected = setOf(state.selected);
+  const hidden = setOf(state.hidden);
+  const rows = users.map((user) => {
+    const key = keyOf(user);
+    const entry = getActivityEntry(state, user);
+    return [
+      key,
+      selected.has(key) ? 1 : 0,
+      isHidden(user, hidden) ? 1 : 0,
+      entry?.lastTweetAt ?? "",
+      entry?.checkedAt ?? "",
+    ].join(":");
+  });
+  return `${rows.join("|")}|${state.language}|${state.activityDays}`;
+}
+
+function activityUnknownSignature(state, users) {
+  const rows = users.map((user) => {
+    const entry = getActivityEntry(state, user);
+    return [keyOf(user), entry?.reason ?? ""].join(":");
+  });
+  return `${rows.join("|")}|${state.language}`;
+}
+
 function reasonLabel(reason, t) {
   if (reason === "no-id") return t("activityReasonNoId");
   if (reason === "not-found") return t("activityReasonNotFound");
@@ -1025,10 +1052,14 @@ function renderActivityView(state, t) {
     ${scanning ? "" : lastCheck}
     ${warnings.join("")}
     ${scanning ? "" : renderControls(state, t)}
-    <div class="ux-list" data-activity-list>${users
+    <div class="ux-list" data-activity-list data-signature="${escapeAttr(
+      activityListSignature(state, users)
+    )}">${users
       .map((user) => renderRow(user, state, activityNote(state, user, t)))
       .join("") || renderActivityEmpty(state, t)}</div>
-    <div data-activity-unknown-host>${renderUnknownSection(state, t)}</div>
+    <div data-activity-unknown-host data-signature="${escapeAttr(
+      activityUnknownSignature(state, getUnknownActivityUsers(state))
+    )}">${renderUnknownSection(state, t)}</div>
     ${
       scanning
         ? ""
@@ -1513,8 +1544,8 @@ export function settingsHTML(
         max: 100,
       })}
       ${field(t("activityDays"), "activityDays", activityDays, {
-        min: 1,
-        max: 365,
+        min: ACTIVITY_MIN_DAYS,
+        max: ACTIVITY_MAX_DAYS,
       })}
     </div>
     <div class="ux-settings-group">
@@ -1569,6 +1600,15 @@ export function readSettings(root, activityDaysFallback = ACTIVITY_DEFAULT_DAYS)
     unfollowDelayMin,
     clamp(read("unfollowDelayMax", 20) * 1000, 5000, 180000)
   );
+  const activityElement = root?.querySelector?.(
+    '[data-setting="activityDays"]'
+  );
+  const activityRaw = String(activityElement?.value ?? "").trim();
+  const activityNumber = activityRaw === "" ? NaN : Number(activityRaw);
+  const activityDays =
+    Number.isFinite(activityNumber) && activityNumber > 0
+      ? activityNumber
+      : activityDaysFallback;
   return {
     scanDelayMin,
     scanDelayMax,
@@ -1589,7 +1629,7 @@ export function readSettings(root, activityDaysFallback = ACTIVITY_DEFAULT_DAYS)
     ),
     maxUnfollows: Math.round(clamp(read("maxUnfollows", 190), 1, 400)),
     activityDays: Math.round(
-      clamp(read("activityDays", activityDaysFallback), 1, 365)
+      clamp(activityDays, ACTIVITY_MIN_DAYS, ACTIVITY_MAX_DAYS)
     ),
   };
 }
@@ -1941,7 +1981,7 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     const users = getDisplayUsers(state);
     const list = root.querySelector("[data-activity-list]");
     if (list) {
-      const signature = users.map(keyOf).join("|");
+      const signature = activityListSignature(state, users);
       if (list.getAttribute("data-signature") !== signature) {
         list.innerHTML = users.length
           ? users
@@ -1956,7 +1996,7 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     const unknownHost = root.querySelector("[data-activity-unknown-host]");
     if (unknownHost) {
       const unknown = getUnknownActivityUsers(state);
-      const signature = unknown.map(keyOf).join("|");
+      const signature = activityUnknownSignature(state, unknown);
       if (unknownHost.getAttribute("data-signature") !== signature) {
         unknownHost.innerHTML = renderUnknownSection(state, t());
         unknownHost.setAttribute("data-signature", signature);
@@ -2040,7 +2080,9 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     if (dot) dot.classList.toggle("is-paused", paused);
     const hint = root.querySelector("[data-activity-hint]");
     if (hint) {
-      hint.textContent = countdownText(state) || t()("activityHint");
+      hint.textContent = paused
+        ? t()("activityHint")
+        : countdownText(state) || t()("activityHint");
     }
     const toggle = root.querySelector("[data-activity-toggle]");
     if (toggle) {
@@ -2294,6 +2336,9 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
         state.timings = timings;
         state.activityDays = timings.activityDays;
         onAction("save-settings", timings);
+        setTimeout(() => {
+          if (root.isConnected) render();
+        }, 0);
       },
     });
     return dialog;
@@ -2390,6 +2435,7 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
         else if (action === "tab") {
           const tab = actionElement.getAttribute("data-tab");
           if (tab === "inactive" || tab === "nonFollowers") {
+            if ((state.activeTab || "nonFollowers") === tab) return;
             state.activeTab = tab;
             state.selected = new Set();
             onChange();

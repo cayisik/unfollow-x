@@ -728,9 +728,27 @@ test("mounted panel switches tabs, clears selection, and starts activity", () =>
 });
 
 test("settings form includes the inactivity threshold", () => {
-  const html = settingsHTML(state().timings, "en", 30);
+  const html = settingsHTML(state().timings, "en", 45);
   assert.match(html, /data-setting="activityDays"/);
-  assert.equal(readSettings(new JSDOM(`<div>${html}</div>`).window.document.querySelector("div")).activityDays, 30);
+  assert.match(html, /data-setting="activityDays" value="45"/);
+  const root = new JSDOM(`<div>${html}</div>`).window.document.querySelector("div");
+  assert.equal(readSettings(root).activityDays, 45);
+  const blank = html.replace('value="45"', 'value=""');
+  assert.equal(
+    readSettings(
+      new JSDOM(`<div>${blank}</div>`).window.document.querySelector("div"),
+      30
+    ).activityDays,
+    30
+  );
+  const zero = html.replace('value="45"', 'value="0"');
+  assert.equal(
+    readSettings(
+      new JSDOM(`<div>${zero}</div>`).window.document.querySelector("div"),
+      30
+    ).activityDays,
+    30
+  );
 });
 
 test("passive unfollow confirmation warns about accounts that follow you", () => {
@@ -752,5 +770,249 @@ test("passive unfollow confirmation warns about accounts that follow you", () =>
   mountUI({ state: s });
   dom.window.document.querySelector('[data-action="unfollow"]').click();
   const dialog = dom.window.document.querySelector('[role="dialog"]');
-  assert.match(dialog.textContent, /follow you/i);
+  const warning = dialog.querySelector(".ux-warning");
+  assert.ok(warning);
+  assert.match(warning.textContent, /1 selected accounts follow you/i);
+});
+
+test("passive unfollow confirmation omits the follows-you warning when safe", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.selected = new Set(["3"]);
+  s.users[2].followsViewer = false;
+  s.activityEntries = {
+    "3": {
+      id: "3",
+      handle: "carol",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  mountUI({ state: s });
+  dom.window.document.querySelector('[data-action="unfollow"]').click();
+  const dialog = dom.window.document.querySelector('[role="dialog"]');
+  assert.equal(dialog.querySelector(".ux-warning"), null);
+});
+
+test("activity live card shows scan progress and controls", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+    "2": {
+      id: "2",
+      handle: "bob",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  s.activity = {
+    ...s.activity,
+    status: "scanning",
+    checked: 1,
+    total: 2,
+    inactive: 1,
+    current: "alice",
+    source: "graphql",
+  };
+  const ui = mountUI({ state: s });
+  const root = dom.window.document.getElementById("ux-app");
+  assert.match(
+    root.querySelector("[data-activity-progress]").textContent,
+    /1 \/ 2 checked/
+  );
+  assert.match(
+    root.querySelector("[data-activity-current]").textContent,
+    /Now: @alice/
+  );
+  assert.equal(root.querySelector("[data-activity-source]").textContent, "Profile");
+  assert.equal(
+    root.querySelector("[data-activity-found]").textContent,
+    "1 inactive account"
+  );
+  assert.ok(root.querySelector('[data-action="pause-activity"]'));
+  assert.ok(root.querySelector('[data-action="cancel-activity"]'));
+  assert.equal(root.querySelector("[data-actionbar]"), null);
+  ui.destroy();
+});
+
+test("activity pause updates the heading, dot, and toggle live", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  s.activity = {
+    ...s.activity,
+    status: "scanning",
+    checked: 1,
+    total: 2,
+    current: "alice",
+  };
+  const ui = mountUI({ state: s });
+  const root = dom.window.document.getElementById("ux-app");
+  s.activity.status = "paused";
+  s.activity.nextAt = Date.now() + 9000;
+  ui.update();
+  assert.equal(root.querySelector("[data-activity-status]").textContent, "Paused");
+  assert.ok(
+    root.querySelector("[data-activity-dot]").classList.contains("is-paused")
+  );
+  assert.equal(
+    root.querySelector("[data-activity-toggle]").getAttribute("data-action"),
+    "resume-activity"
+  );
+  const hint = root.querySelector("[data-activity-hint]").textContent;
+  assert.doesNotMatch(hint, /Next in/);
+  assert.match(hint, /Keep this tab visible/);
+  ui.destroy();
+});
+
+test("activity selection updates rows when selecting and clearing all", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.selected = new Set();
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+    "2": {
+      id: "2",
+      handle: "bob",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const ui = mountUI({ state: s });
+  const root = dom.window.document.getElementById("ux-app");
+  ui.update();
+  const selectAll = root.querySelector("[data-select-all]");
+  selectAll.checked = true;
+  selectAll.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  assert.equal(s.selected.size, 2);
+  for (const key of ["1", "2"]) {
+    assert.equal(root.querySelector(`[data-select="${key}"]`).checked, true);
+    assert.ok(
+      root.querySelector(`[data-row="${key}"]`).classList.contains("is-selected")
+    );
+  }
+  assert.equal(root.querySelector('[data-action="unfollow"]').disabled, false);
+
+  selectAll.checked = false;
+  selectAll.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  assert.equal(s.selected.size, 0);
+  for (const key of ["1", "2"]) {
+    assert.equal(root.querySelector(`[data-select="${key}"]`).checked, false);
+    assert.ok(
+      !root
+        .querySelector(`[data-row="${key}"]`)
+        .classList.contains("is-selected")
+    );
+  }
+  assert.equal(root.querySelector('[data-action="unfollow"]').disabled, true);
+  ui.destroy();
+});
+
+test("activity live update keeps the unknown details open", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+    "3": {
+      id: "3",
+      handle: "carol",
+      state: "unknown",
+      reason: "not-found",
+      checkedAt: Date.now(),
+    },
+  };
+  const ui = mountUI({ state: s });
+  const root = dom.window.document.getElementById("ux-app");
+  const details = root.querySelector("[data-activity-unknown-list]");
+  details.open = true;
+  ui.update();
+  const next = root.querySelector("[data-activity-unknown-list]");
+  assert.equal(next, details);
+  assert.equal(next.open, true);
+  ui.destroy();
+});
+
+test("clicking the active tab keeps the current selection", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.selected = new Set(["1"]);
+  const ui = mountUI({ state: s });
+  dom.window.document.querySelector('[data-tab="nonFollowers"]').click();
+  assert.equal(s.activeTab, "nonFollowers");
+  assert.deepEqual([...s.selected], ["1"]);
+  ui.destroy();
+});
+
+test("saving the inactivity threshold refreshes the intro copy", async () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityDays = 30;
+  const actions = [];
+  const ui = mountUI({
+    state: s,
+    onAction: (action, payload) => actions.push([action, payload]),
+  });
+  const root = dom.window.document.getElementById("ux-app");
+  assert.match(root.textContent, /last 30 days/);
+  root.querySelector('[data-action="settings"]').click();
+  const overlay = dom.window.document.querySelector(".ux-overlay");
+  overlay.querySelector('[data-setting="activityDays"]').value = "60";
+  overlay.querySelector("[data-confirm]").click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(s.activityDays, 60);
+  assert.equal(actions[0][0], "save-settings");
+  assert.equal(actions[0][1].activityDays, 60);
+  assert.match(root.textContent, /last 60 days/);
+  assert.doesNotMatch(root.textContent, /last 30 days/);
+  ui.destroy();
 });
