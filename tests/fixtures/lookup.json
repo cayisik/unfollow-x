@@ -1,0 +1,20 @@
+[
+  {
+    "id_str": "1",
+    "screen_name": "alice",
+    "statuses_count": 120,
+    "status": {
+      "created_at": "Thu Oct 29 10:00:00 +0000 2026"
+    }
+  },
+  {
+    "id_str": "2",
+    "screen_name": "bob",
+    "statuses_count": 0
+  },
+  {
+    "id_str": "3",
+    "screen_name": "carol",
+    "statuses_count": 42
+  }
+]

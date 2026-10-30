@@ -1,0 +1,15 @@
+{
+  "data": {
+    "user": {
+      "result": {
+        "__typename": "User",
+        "rest_id": "2",
+        "timeline_v2": {
+          "timeline": {
+            "instructions": []
+          }
+        }
+      }
+    }
+  }
+}

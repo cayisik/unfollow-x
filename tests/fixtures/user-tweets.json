@@ -1,0 +1,88 @@
+{
+  "data": {
+    "user": {
+      "result": {
+        "__typename": "User",
+        "rest_id": "1",
+        "timeline_v2": {
+          "timeline": {
+            "instructions": [
+              {
+                "type": "TimelineAddEntries",
+                "entries": [
+                  {
+                    "entryId": "tweet-1",
+                    "content": {
+                      "itemContent": {
+                        "tweet_results": {
+                          "result": {
+                            "__typename": "Tweet",
+                            "rest_id": "100",
+                            "core": {
+                              "user_results": {
+                                "result": { "rest_id": "1" }
+                              }
+                            },
+                            "legacy": {
+                              "created_at": "Thu Oct 29 10:00:00 +0000 2026",
+                              "in_reply_to_status_id_str": "90"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "entryId": "tweet-2",
+                    "content": {
+                      "itemContent": {
+                        "tweet_results": {
+                          "result": {
+                            "__typename": "Tweet",
+                            "rest_id": "101",
+                            "core": {
+                              "user_results": {
+                                "result": { "rest_id": "1" }
+                              }
+                            },
+                            "legacy": {
+                              "created_at": "Wed Jan 01 10:00:00 +0000 2025"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "entryId": "tweet-3",
+                    "content": {
+                      "itemContent": {
+                        "tweet_results": {
+                          "result": {
+                            "__typename": "Tweet",
+                            "rest_id": "102",
+                            "core": {
+                              "user_results": {
+                                "result": { "rest_id": "999" }
+                              }
+                            },
+                            "legacy": {
+                              "created_at": "Thu Oct 30 09:00:00 +0000 2026",
+                              "retweeted_status_result": {
+                                "result": { "rest_id": "50" }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
