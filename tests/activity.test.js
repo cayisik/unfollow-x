@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   activityEntryFor,
+  buildActivityRequest,
+  buildDefaultActivityTemplate,
+  buildLookupRequest,
   classifyActivity,
   isActivityFresh,
   parseLookupUsers,
   parseTwitterDate,
   parseUserTweetsPage,
 } from "../src/activity.js";
+import { ACTIVITY_QUERY_ID } from "../src/config.js";
 
 const fixture = (name) =>
   JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
@@ -318,4 +322,67 @@ test("parseUserTweetsPage does not over-match generic retry or spam text", () =>
     "1"
   );
   assert.equal(spam.fatalKind, undefined);
+});
+
+test("buildLookupRequest batches by user id", () => {
+  const request = buildLookupRequest({
+    userIds: ["1", "2"],
+    csrf: "token",
+    origin: "https://x.com",
+  });
+  const url = new URL(request.url);
+  assert.equal(url.pathname, "/i/api/1.1/users/lookup.json");
+  assert.equal(url.searchParams.get("user_id"), "1,2");
+  assert.equal(url.searchParams.get("include_entities"), "true");
+  assert.equal(request.init.headers["x-csrf-token"], "token");
+  assert.equal(request.init.credentials, "include");
+});
+
+test("buildLookupRequest batches by screen name", () => {
+  const request = buildLookupRequest({
+    screenNames: ["alice", "bob"],
+    origin: "https://x.com",
+  });
+  const url = new URL(request.url);
+  assert.equal(url.searchParams.get("screen_name"), "alice,bob");
+});
+
+test("buildActivityRequest fills GET variables", () => {
+  const template = buildDefaultActivityTemplate();
+  const request = buildActivityRequest(template, {
+    userId: "42",
+    csrf: "token",
+    origin: "https://x.com",
+  });
+  const url = new URL(request.url);
+  const variables = JSON.parse(url.searchParams.get("variables"));
+  assert.equal(url.pathname, `/i/api/graphql/${ACTIVITY_QUERY_ID}/UserTweetsAndReplies`);
+  assert.equal(variables.userId, "42");
+  assert.equal(variables.count, 20);
+  assert.equal(variables.includePromotedContent, false);
+  assert.equal(request.init.headers["x-csrf-token"], "token");
+});
+
+test("buildActivityRequest preserves a POST template", () => {
+  const template = {
+    url: "https://x.com/i/api/graphql/q/UserTweetsAndReplies",
+    method: "POST",
+    headers: {},
+    body: JSON.stringify({
+      variables: { userId: "old", count: 20 },
+      queryId: "q",
+      features: { f: true },
+    }),
+    variables: { userId: "old", count: 20 },
+    features: { f: true },
+    fieldToggles: null,
+    queryId: "q",
+    operationName: "UserTweetsAndReplies",
+  };
+  const request = buildActivityRequest(template, { userId: "7", csrf: "t" });
+  const body = JSON.parse(request.init.body);
+  assert.equal(request.init.method, "POST");
+  assert.equal(body.variables.userId, "7");
+  assert.equal(body.queryId, "q");
+  assert.equal(body.features.f, true);
 });

@@ -240,3 +240,129 @@ export function parseUserTweetsPage(json, userId = "") {
   }
   return { state: "known", lastTweetAt, reason: "" };
 }
+
+function originOf(origin) {
+  return (
+    origin ||
+    (typeof location !== "undefined" && location.origin) ||
+    "https://x.com"
+  );
+}
+
+function authHeaders(csrf, isJson, transactionId) {
+  const headers = {
+    authorization: `Bearer ${BEARER}`,
+    "x-csrf-token": csrf || "",
+    "x-twitter-auth-type": "OAuth2Session",
+    "x-twitter-active-user": "yes",
+    "x-twitter-client-language": "en",
+  };
+  if (isJson) headers["content-type"] = "application/json";
+  if (transactionId) headers["x-client-transaction-id"] = transactionId;
+  return headers;
+}
+
+export function buildLookupRequest({
+  userIds = [],
+  screenNames = [],
+  csrf = "",
+  origin = "",
+} = {}) {
+  const url = new URL("/i/api/1.1/users/lookup.json", originOf(origin));
+  if (userIds.length) url.searchParams.set("user_id", userIds.join(","));
+  if (screenNames.length) url.searchParams.set("screen_name", screenNames.join(","));
+  url.searchParams.set("include_entities", "true");
+  return {
+    url: url.toString(),
+    init: {
+      method: "GET",
+      headers: authHeaders(csrf, false),
+      credentials: "include",
+    },
+  };
+}
+
+export function buildActivityRequest(
+  template,
+  { userId = "", count = 20, csrf = "", origin = "" } = {}
+) {
+  if (!template) throw makeError("format", "No activity template");
+  const method =
+    String(template.method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
+  const variables = { ...(template.variables || {}) };
+  variables.userId = String(userId || "");
+  variables.count = Number(count) || 20;
+  variables.includePromotedContent = false;
+  variables.withCommunity = true;
+  variables.withVoice = true;
+  variables.withV2Timeline = true;
+  delete variables.cursor;
+
+  const transactionId =
+    template.headers?.["x-client-transaction-id"] || "";
+  const headers = authHeaders(csrf, method === "POST", transactionId);
+
+  if (method === "GET") {
+    const url = new URL(template.url, originOf(origin));
+    url.searchParams.set("variables", JSON.stringify(variables));
+    if (template.features && typeof template.features === "object") {
+      url.searchParams.set("features", JSON.stringify(template.features));
+    }
+    if (template.fieldToggles && typeof template.fieldToggles === "object") {
+      url.searchParams.set(
+        "fieldToggles",
+        JSON.stringify(template.fieldToggles)
+      );
+    }
+    return {
+      url: url.toString(),
+      init: { method: "GET", headers, credentials: "include" },
+    };
+  }
+
+  const base = safeJsonParse(template.body, {}) || {};
+  const body = {
+    ...base,
+    variables,
+    queryId: base.queryId || template.queryId || "",
+  };
+  if (template.features && body.features === undefined) {
+    body.features = template.features;
+  }
+  if (template.fieldToggles && body.fieldToggles === undefined) {
+    body.fieldToggles = template.fieldToggles;
+  }
+  return {
+    url: new URL(template.url, originOf(origin)).toString(),
+    init: {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      credentials: "include",
+    },
+  };
+}
+
+export function buildDefaultActivityTemplate() {
+  const variables = {
+    userId: "",
+    count: 20,
+    includePromotedContent: false,
+    withCommunity: true,
+    withVoice: true,
+    withV2Timeline: true,
+  };
+  return {
+    url: `https://x.com/i/api/graphql/${ACTIVITY_QUERY_ID}/UserTweetsAndReplies`,
+    method: "GET",
+    headers: {},
+    body: "",
+    variables,
+    features: ACTIVITY_FEATURES,
+    fieldToggles: { withArticlePlainText: false },
+    queryId: ACTIVITY_QUERY_ID,
+    operationName: "UserTweetsAndReplies",
+    capturedAt: 0,
+    responseSample: null,
+  };
+}
