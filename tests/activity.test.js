@@ -744,6 +744,9 @@ test("runActivityScan resolves a handle-only fallback to an id for GraphQL", asy
   assert.equal(results[0].entry.state, "known");
   assert.equal(results[0].entry.id, "42");
   assert.equal(results[0].entry.source, "graphql");
+  const graphqlUrl = new URL(calls[1]);
+  const variables = JSON.parse(graphqlUrl.searchParams.get("variables"));
+  assert.equal(variables.userId, "42");
   assert.equal(output.checked, 1);
 });
 
@@ -851,4 +854,116 @@ test("runActivityScan deduplicates users before checking", async () => {
   assert.equal(new URL(calls[0]).searchParams.get("user_id"), "1");
   assert.equal(output.checked, 1);
   assert.equal(results.length, 1);
+});
+
+test("runActivityScan keeps scanning after a suspended-user 403", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  let calls = 0;
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse(
+          { errors: [{ message: "User has been suspended" }] },
+          403
+        );
+      }
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls, 2);
+  assert.equal(results[0].state, "unknown");
+  assert.equal(results[0].reason, "unavailable");
+  assert.equal(results[1].state, "known");
+  assert.equal(output.checked, 2);
+  assert.equal(output.stopped, "done");
+});
+
+test("runActivityScan keeps scanning after a per-user 401", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  let calls = 0;
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse(
+          {
+            errors: [
+              { message: "You are not authorized to view this user" },
+            ],
+          },
+          401
+        );
+      }
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls, 2);
+  assert.equal(results[0].state, "unknown");
+  assert.equal(results[0].reason, "unavailable");
+  assert.equal(results[1].state, "known");
+  assert.equal(output.checked, 2);
+  assert.equal(output.stopped, "done");
+});
+
+test("runActivityScan still rejects genuine authentication failures", async () => {
+  await assert.rejects(
+    runActivityScan({
+      users: [makeUser(1, "alice")],
+      lookup: false,
+      template: buildDefaultActivityTemplate(),
+      fetchImpl: async () =>
+        jsonResponse(
+          { errors: [{ message: "Could not authenticate you" }] },
+          401
+        ),
+      sleepFn: async () => {},
+      timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+      now: NOW,
+    }),
+    (error) => error.kind === "auth"
+  );
+});
+
+test("runActivityScan paces between lookup batches without a final delay", async () => {
+  const users = Array.from({ length: 25 }, (_, index) =>
+    makeUser(index + 1, `u${index + 1}`)
+  );
+  const sleeps = [];
+  await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      const ids = (new URL(url).searchParams.get("user_id") || "")
+        .split(",")
+        .filter(Boolean);
+      return jsonResponse(lookupPayload(ids));
+    },
+    sleepFn: async (ms) => {
+      sleeps.push(ms);
+    },
+    timings: {
+      scanDelayMin: 100,
+      scanDelayMax: 100,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    },
+    now: NOW,
+  });
+  assert.deepEqual(sleeps, [100, 100]);
 });

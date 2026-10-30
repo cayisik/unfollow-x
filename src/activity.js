@@ -406,7 +406,7 @@ function isUserLevelGraphqlError(error) {
   const message = String(
     error?.body?.errors?.[0]?.message || error?.message || ""
   );
-  return /could not find user|user not found|suspended|not authorized to view|protected|unavailable/i.test(
+  return /could not find user|user not found|suspended|not authorized to view|protected|user unavailable|account unavailable/i.test(
     message
   );
 }
@@ -682,18 +682,18 @@ export async function runActivityScan(options = {}) {
         sleepFn,
       });
     } catch (error) {
+      if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
+        processEntry(user, {
+          state: "unknown",
+          reason: "unavailable",
+          source: "graphql",
+        });
+        return;
+      }
       if (
         error.kind === "format" &&
         [400, 404, 405, 410].includes(Number(error.status))
       ) {
-        if (isUserLevelGraphqlError(error)) {
-          processEntry(user, {
-            state: "unknown",
-            reason: "unavailable",
-            source: "graphql",
-          });
-          return;
-        }
         breakGraphql(user);
         return;
       }
