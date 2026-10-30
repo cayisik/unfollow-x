@@ -460,3 +460,194 @@ test("buildActivityRequest sets JSON content type for POST templates", () => {
   assert.equal(request.init.headers["content-type"], "application/json");
   assert.equal(request.init.headers["x-client-transaction-id"], "txn-456");
 });
+
+import { runActivityScan } from "../src/activity.js";
+
+function makeUser(id, handle, followsViewer = false) {
+  return { id: String(id), handle, name: handle, followsViewer };
+}
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function lookupPayload(ids) {
+  return ids.map((id) => ({
+    id_str: id,
+    screen_name: `u${id}`,
+    statuses_count: id === "3" ? 0 : 4,
+    status:
+      id === "2"
+        ? { created_at: "Wed Jan 01 10:00:00 +0000 2025" }
+        : { created_at: "Thu Oct 29 10:00:00 +0000 2026" },
+  }));
+}
+
+test("runActivityScan checks 10 at a time and classifies results", async () => {
+  const calls = [];
+  const users = Array.from({ length: 25 }, (_, index) =>
+    makeUser(index + 1, `u${index + 1}`)
+  );
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url);
+    const ids = (parsed.searchParams.get("user_id") || "").split(",").filter(Boolean);
+    calls.push(ids);
+    return jsonResponse(lookupPayload(ids));
+  };
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    fetchImpl,
+    sleepFn: async () => {},
+    timings: {
+      scanDelayMin: 0,
+      scanDelayMax: 0,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    },
+    now: NOW,
+    onResult: (user, entry) => results.push({ user, entry }),
+  });
+  assert.deepEqual(
+    calls.map((batch) => batch.length),
+    [10, 10, 5]
+  );
+  assert.equal(output.checked, 25);
+  assert.equal(results.length, 25);
+  assert.equal(results[0].entry.source, "lookup");
+  assert.equal(output.inactive, 2);
+});
+
+test("runActivityScan falls back to GraphQL when lookup is unsupported", async () => {
+  const users = [makeUser(1, "alice")];
+  const fetchImpl = async (url) => {
+    if (String(url).includes("users/lookup")) {
+      return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+    }
+    return jsonResponse(fixture("user-tweets.json"));
+  };
+  const progress = [];
+  const output = await runActivityScan({
+    users,
+    fetchImpl,
+    template: buildDefaultActivityTemplate(),
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onProgress: (event) => progress.push(event),
+  });
+  assert.equal(output.source, "graphql");
+  assert.equal(output.checked, 1);
+  assert.equal(output.inactive, 0);
+  assert.ok(progress.some((event) => event.kind === "fallback"));
+});
+
+test("runActivityScan stops on rate limits and keeps partial results", async () => {
+  const users = Array.from({ length: 20 }, (_, index) =>
+    makeUser(index + 1, `u${index + 1}`)
+  );
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    calls += 1;
+    if (calls > 1) return jsonResponse({ errors: [{ message: "Rate limit" }] }, 429);
+    const ids = (new URL(url).searchParams.get("user_id") || "").split(",");
+    return jsonResponse(lookupPayload(ids));
+  };
+  let checked = 0;
+  await assert.rejects(
+    runActivityScan({
+      users,
+      fetchImpl,
+      sleepFn: async () => {},
+      timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+      now: NOW,
+      onResult: () => {
+        checked += 1;
+      },
+    }),
+    (error) => error.kind === "rate"
+  );
+  assert.equal(checked, 10);
+});
+
+test("runActivityScan skips fresh cache entries", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const cache = {
+    "1": { id: "1", handle: "alice", state: "known", lastTweetAt: NOW - 1000, checkedAt: NOW },
+    "2": { id: "2", handle: "bob", state: "known", lastTweetAt: NOW - 1000, checkedAt: NOW },
+  };
+  let called = false;
+  const output = await runActivityScan({
+    users,
+    cache,
+    now: NOW,
+    fetchImpl: async () => {
+      called = true;
+      return jsonResponse([]);
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+  });
+  assert.equal(called, false);
+  assert.equal(output.checked, 0);
+});
+
+test("runActivityScan can be cancelled", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  let cancelled = false;
+  await assert.rejects(
+    runActivityScan({
+      users,
+      lookup: false,
+      template: buildDefaultActivityTemplate(),
+      fetchImpl: async () => jsonResponse(fixture("user-tweets.json")),
+      sleepFn: async () => {},
+      timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+      now: NOW,
+      shouldCancel: () => cancelled,
+      onResult: () => {
+        cancelled = true;
+      },
+    }),
+    (error) => error.kind === "aborted"
+  );
+});
+
+test("runActivityScan falls back when the lookup selector is invalid", async () => {
+  const users = [{ handle: " ", name: "space", followsViewer: false }];
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async () => {
+      throw new Error("should not fetch");
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+  });
+  assert.equal(output.source, "graphql");
+  assert.equal(output.checked, 1);
+  assert.equal(output.unknown, 1);
+});
+
+test("runActivityScan marks remaining accounts unknown when the GraphQL template is broken", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const progress = [];
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () =>
+      jsonResponse({ errors: [{ message: "Unknown queryId" }] }),
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onProgress: (event) => progress.push(event),
+  });
+  assert.equal(output.checked, 2);
+  assert.equal(output.unknown, 2);
+  assert.equal(output.inactive, 0);
+  assert.ok(progress.some((event) => event.kind === "template-broken"));
+});

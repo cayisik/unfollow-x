@@ -80,15 +80,15 @@ function normalizeLookupItem(raw) {
   const createdAt = raw?.status?.created_at;
   let state = "fallback";
   let lastTweetAt = null;
-  if (createdAt !== undefined && createdAt !== null && createdAt !== "") {
+  if (count === 0) {
+    state = "known";
+    lastTweetAt = 0;
+  } else if (createdAt !== undefined && createdAt !== null && createdAt !== "") {
     const parsed = parseTwitterDate(createdAt);
     if (parsed !== null) {
       state = "known";
       lastTweetAt = parsed;
     }
-  } else if (count === 0) {
-    state = "known";
-    lastTweetAt = 0;
   }
   return { id, handle, state, lastTweetAt, statusesCount: count, reason: "" };
 }
@@ -381,5 +381,375 @@ export function buildDefaultActivityTemplate() {
     operationName: "UserTweetsAndReplies",
     capturedAt: 0,
     responseSample: null,
+  };
+}
+
+function abortError() {
+  return makeError("aborted", "Aborted");
+}
+
+function isLookupUnsupported(error) {
+  const status = Number(error?.status);
+  if (error?.kind === "blocked" && status === 403) return true;
+  if (
+    error?.kind === "format" &&
+    !status &&
+    /lookup/i.test(error?.message || "")
+  ) {
+    return true;
+  }
+  return error?.kind === "format" && [400, 403, 404, 405, 410].includes(status);
+}
+
+export async function runActivityScan(options = {}) {
+  const {
+    users = [],
+    cache = {},
+    days = ACTIVITY_DEFAULT_DAYS,
+    csrf = "",
+    origin = "",
+    template = null,
+    fetchImpl = globalThis.fetch,
+    sleepFn = sleep,
+    random = Math.random,
+    timings = {},
+    onResult = () => {},
+    onProgress = () => {},
+    shouldPause,
+    shouldCancel,
+    signal,
+    lookup = true,
+    force = false,
+  } = options;
+
+  const clock =
+    typeof options.now === "function"
+      ? options.now
+      : () =>
+          Number.isFinite(Number(options.now))
+            ? Number(options.now)
+            : Date.now();
+
+  const delayMin = Math.max(0, Number(timings.scanDelayMin) || 0);
+  const delayMax = Math.max(delayMin, Number(timings.scanDelayMax) || 0);
+  const pauseEvery = Math.max(0, Number(timings.scanPauseEveryPages) || 0);
+  const pauseMs = Math.max(0, Number(timings.scanPauseMs) || 0);
+
+  const candidates = (Array.isArray(users) ? users : []).filter((user) => {
+    if (!user || !user.handle) return false;
+    if (force) return true;
+    return !isActivityFresh(activityEntryFor(cache, user), clock());
+  });
+  const total = candidates.length;
+
+  let checked = 0;
+  let inactive = 0;
+  let unknown = 0;
+  let requests = 0;
+  let lookupMode = Boolean(lookup);
+  let currentSource = lookupMode ? "lookup" : "graphql";
+  let graphqlBroken = false;
+  let defaultTemplate = template || null;
+
+  const check = () => {
+    if (signal?.aborted || shouldCancel?.()) throw abortError();
+  };
+
+  const waitWhilePaused = async () => {
+    while (shouldPause?.()) {
+      check();
+      onProgress({ kind: "paused", checked, total, source: currentSource });
+      await sleepFn(250);
+    }
+    check();
+  };
+
+  const pace = async () => {
+    requests += 1;
+    const wait =
+      delayMax <= delayMin
+        ? delayMin
+        : delayMin + random() * (delayMax - delayMin);
+    if (wait > 0) {
+      onProgress({ kind: "delay", ms: wait, checked, total, source: currentSource });
+      await sleepFn(wait);
+    }
+    if (pauseEvery > 0 && requests % pauseEvery === 0 && pauseMs > 0) {
+      onProgress({ kind: "pause", ms: pauseMs, checked, total, source: currentSource });
+      await sleepFn(pauseMs);
+    }
+    check();
+  };
+
+  const processEntry = (user, entry) => {
+    let state = entry.state;
+    let lastTweetAt = null;
+    if (state === "known") {
+      const raw = entry.lastTweetAt;
+      if (raw === null || raw === undefined || raw === "") {
+        state = "unknown";
+      } else {
+        const value = Number(raw);
+        if (Number.isFinite(value) && value >= 0) lastTweetAt = value;
+        else state = "unknown";
+      }
+    }
+    const normalized = {
+      id: String(entry.id || user.id || ""),
+      handle: user.handle,
+      state,
+      lastTweetAt: state === "known" ? lastTweetAt : null,
+      reason:
+        entry.reason ||
+        (state === "unknown" && entry.state === "known" ? "parse" : ""),
+      checkedAt: clock(),
+      source: entry.source || currentSource,
+    };
+    checked += 1;
+    if (normalized.state === "unknown") unknown += 1;
+    else if (classifyActivity(normalized, days, clock()) === "inactive") {
+      inactive += 1;
+    }
+    onResult(user, normalized);
+    onProgress({
+      kind: "result",
+      user,
+      entry: normalized,
+      checked,
+      total,
+      inactive,
+      unknown,
+      source: normalized.source,
+    });
+    if (checked % 5 === 0) {
+      onProgress({
+        kind: "checkpoint",
+        checked,
+        total,
+        source: normalized.source,
+      });
+    }
+  };
+
+  const lookupBatch = async (batch) => {
+    const ids = batch.filter((user) => user.id).map((user) => String(user.id));
+    const names = batch.filter((user) => !user.id).map((user) => user.handle);
+    let json;
+    try {
+      const request = buildLookupRequest({
+        userIds: ids,
+        screenNames: names,
+        csrf,
+        origin,
+      });
+      json = await fetchJson(request.url, request.init, {
+        fetchImpl,
+        signal,
+        sleepFn,
+      });
+    } catch (error) {
+      if (isLookupUnsupported(error)) {
+        throw makeError("lookup-unsupported", "lookup unsupported", {
+          cause: error,
+          status: error.status,
+        });
+      }
+      throw error;
+    }
+    const parsed = parseLookupUsers(json);
+    const fallback = [];
+    let matched = 0;
+    for (const user of batch) {
+      const item =
+        (user.id && parsed.byId.get(String(user.id))) ||
+        parsed.byHandle.get(String(user.handle).toLowerCase());
+      if (!item) {
+        fallback.push(user);
+        continue;
+      }
+      matched += 1;
+      if (item.state === "known") {
+        processEntry(user, { ...item, source: "lookup" });
+      } else {
+        fallback.push(user);
+      }
+    }
+    await pace();
+    if (batch.length > 0 && matched === 0) {
+      throw makeError("lookup-unsupported", "lookup returned no users");
+    }
+    return fallback;
+  };
+
+  const graphqlUser = async (user) => {
+    if (!user.id) {
+      processEntry(user, { state: "unknown", reason: "no-id", source: "graphql" });
+      return;
+    }
+    if (graphqlBroken) {
+      processEntry(user, {
+        state: "unknown",
+        reason: "template",
+        source: "graphql",
+      });
+      return;
+    }
+    if (!defaultTemplate) defaultTemplate = buildDefaultActivityTemplate();
+    const request = buildActivityRequest(defaultTemplate, {
+      userId: user.id,
+      count: 20,
+      csrf,
+      origin,
+    });
+    let json;
+    try {
+      json = await fetchJson(request.url, request.init, {
+        fetchImpl,
+        signal,
+        sleepFn,
+      });
+    } catch (error) {
+      if (
+        error.kind === "format" &&
+        [400, 404, 405, 410].includes(Number(error.status))
+      ) {
+        graphqlBroken = true;
+        processEntry(user, {
+          state: "unknown",
+          reason: "template",
+          source: "graphql",
+        });
+        onProgress({
+          kind: "template-broken",
+          checked,
+          total,
+          source: currentSource,
+        });
+        return;
+      }
+      throw error;
+    }
+    const parsed = parseUserTweetsPage(json, user.id);
+    if (parsed.fatalKind === "template") {
+      graphqlBroken = true;
+      processEntry(user, {
+        state: "unknown",
+        reason: "template",
+        source: "graphql",
+      });
+      onProgress({
+        kind: "template-broken",
+        checked,
+        total,
+        source: currentSource,
+      });
+      return;
+    }
+    if (parsed.fatalKind) {
+      throw makeError(parsed.fatalKind, parsed.reason || parsed.fatalKind, {
+        status: 200,
+        body: json,
+        retryAfter: 0,
+      });
+    }
+    processEntry(user, { ...parsed, source: "graphql" });
+    await pace();
+  };
+
+  onProgress({ kind: "start", total, source: currentSource });
+  if (!total) {
+    onProgress({
+      kind: "done",
+      checked: 0,
+      inactive: 0,
+      unknown: 0,
+      total: 0,
+      source: currentSource,
+      stopped: "done",
+    });
+    return {
+      checked,
+      inactive,
+      unknown,
+      total,
+      source: currentSource,
+      stopped: "done",
+    };
+  }
+
+  const idQueue = candidates.filter((user) => user.id);
+  const handleQueue = candidates.filter((user) => !user.id);
+  let idIndex = 0;
+  let handleIndex = 0;
+  const hasRemaining = () =>
+    idIndex < idQueue.length || handleIndex < handleQueue.length;
+  const takeBatch = () => {
+    if (idIndex < idQueue.length) {
+      const batch = idQueue.slice(idIndex, idIndex + ACTIVITY_BATCH_SIZE);
+      idIndex += batch.length;
+      return batch;
+    }
+    const batch = handleQueue.slice(handleIndex, handleIndex + ACTIVITY_BATCH_SIZE);
+    handleIndex += batch.length;
+    return batch;
+  };
+  const takeOne = () => {
+    if (idIndex < idQueue.length) return idQueue[idIndex++];
+    return handleQueue[handleIndex++];
+  };
+
+  while (hasRemaining()) {
+    await waitWhilePaused();
+    if (lookupMode) {
+      const batch = takeBatch();
+      let fallback;
+      try {
+        fallback = await lookupBatch(batch);
+      } catch (error) {
+        if (error.kind === "lookup-unsupported") {
+          lookupMode = false;
+          currentSource = "graphql";
+          onProgress({
+            kind: "fallback",
+            to: "graphql",
+            reason: error.message,
+            checked,
+            total,
+          });
+          for (const user of batch) {
+            await waitWhilePaused();
+            await graphqlUser(user);
+          }
+          continue;
+        }
+        throw error;
+      }
+      for (const user of fallback) {
+        await waitWhilePaused();
+        await graphqlUser(user);
+      }
+    } else {
+      const user = takeOne();
+      await waitWhilePaused();
+      await graphqlUser(user);
+    }
+  }
+
+  onProgress({
+    kind: "done",
+    checked,
+    inactive,
+    unknown,
+    total,
+    source: currentSource,
+    stopped: "done",
+  });
+  return {
+    checked,
+    inactive,
+    unknown,
+    total,
+    source: currentSource,
+    stopped: "done",
   };
 }
