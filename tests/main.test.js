@@ -653,6 +653,30 @@ test("activity actions are scoped to the activity job", () => {
     button.click();
     assert.equal(state.active.cancelled, true);
     assert.equal(woken, 2);
+
+    state.active = {
+      running: true,
+      paused: false,
+      cancelled: false,
+      abort: new AbortController(),
+      wake: () => {
+        woken += 1;
+      },
+      job: "activity",
+    };
+    state.activity.status = "scanning";
+    state.activity.nextAt = Date.now() + 5000;
+    Object.defineProperty(dom.window.document, "hidden", {
+      configurable: true,
+      get: () => true,
+    });
+    dom.window.document.dispatchEvent(
+      new dom.window.Event("visibilitychange")
+    );
+    assert.equal(state.active.paused, true);
+    assert.equal(state.activity.status, "paused");
+    assert.equal(state.activity.nextAt, 0);
+    assert.equal(woken, 3);
   } finally {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);
@@ -715,6 +739,97 @@ test("boot loads fresh activity cache for the viewer", () => {
     assert.equal(state.activityEntries["1"].handle, "alice");
     assert.equal(state.activity.status, "done");
     assert.equal(state.activity.inactive, 1);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
+
+test("show-last scopes activity counters to restored users", () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    const savedAt = Date.now();
+    dom.window.localStorage.setItem(
+      "ux_last_scan_v1",
+      JSON.stringify({
+        viewerHandle: "me",
+        users: [
+          { id: "1", handle: "alice", name: "Alice", followsViewer: false },
+          { id: "2", handle: "bob", name: "Bob", followsViewer: false },
+        ],
+        unverified: false,
+        source: "api",
+        total: 2,
+        savedAt,
+      })
+    );
+    dom.window.localStorage.setItem(
+      "ux_activity_v1",
+      JSON.stringify({
+        version: 1,
+        viewerHandle: "me",
+        savedAt,
+        entries: {
+          "1": {
+            id: "1",
+            handle: "alice",
+            state: "known",
+            lastTweetAt: 0,
+            checkedAt: savedAt,
+            source: "lookup",
+          },
+          "2": {
+            id: "2",
+            handle: "bob",
+            state: "known",
+            lastTweetAt: savedAt,
+            checkedAt: savedAt,
+            source: "lookup",
+          },
+          "999": {
+            id: "999",
+            handle: "ghost",
+            state: "known",
+            lastTweetAt: 0,
+            checkedAt: savedAt,
+            source: "lookup",
+          },
+        },
+      })
+    );
+    state = boot();
+    dom.window.document.querySelector('[data-action="show-last"]').click();
+    assert.equal(state.users.length, 2);
+    assert.equal(state.activity.checked, 2);
+    assert.equal(state.activity.total, 2);
+    assert.equal(state.activity.inactive, 1);
+    assert.equal(state.activity.unknown, 0);
   } finally {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);
@@ -785,6 +900,75 @@ test("boot restores the template error from a saved activity scan", () => {
     assert.equal(state.activity.status, "error");
     assert.match(state.activity.error, /Replies/);
     assert.equal(state.activityScan.stopped, "template");
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
+
+test("settings refresh keeps a non-template activity error", () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    const oldDate = Date.now() - 40 * 86400000;
+    dom.window.localStorage.setItem(
+      "ux_activity_v1",
+      JSON.stringify({
+        version: 1,
+        viewerHandle: "me",
+        savedAt: Date.now(),
+        entries: {
+          "1": {
+            id: "1",
+            handle: "alice",
+            state: "known",
+            lastTweetAt: oldDate,
+            checkedAt: Date.now(),
+            source: "lookup",
+          },
+        },
+      })
+    );
+    state = boot();
+    assert.equal(state.activity.status, "done");
+    assert.equal(state.activity.inactive, 1);
+    state.activity.status = "error";
+    state.activity.error = "Network error.";
+    dom.window.document.querySelector('[data-action="settings"]').click();
+    const input = dom.window.document.querySelector(
+      '[data-setting="activityDays"]'
+    );
+    input.value = "60";
+    dom.window.document.querySelector("[data-confirm]").click();
+    assert.equal(state.activityDays, 60);
+    assert.equal(state.activity.status, "error");
+    assert.equal(state.activity.error, "Network error.");
+    assert.equal(state.activity.inactive, 0);
   } finally {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);
@@ -1068,6 +1252,7 @@ test("late viewer resolution loads the stored activity cache", () => {
     dom.window.document.querySelector('[data-tab="inactive"]').click();
     dom.window.document.querySelector('[data-action="start-activity"]').click();
     assert.equal(state.viewer.handle, "me");
+    assert.equal(state.users.length, 0);
     assert.equal(state.activityEntries["1"].handle, "alice");
     assert.equal(state.activity.status, "done");
     assert.equal(fetchCalls, 0);
@@ -1075,6 +1260,69 @@ test("late viewer resolution loads the stored activity cache", () => {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);
     globalThis.fetch = originalFetch;
+    dom.window.close();
+  }
+});
+
+test("cleanup flushes throttled activity progress", () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    state = boot();
+    state.active = {
+      running: true,
+      paused: false,
+      cancelled: false,
+      abort: new AbortController(),
+      wake: null,
+      job: "activity",
+    };
+    state.activityEntries = {
+      "1": {
+        id: "1",
+        handle: "alice",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: Date.now(),
+        source: "lookup",
+      },
+    };
+    state.activity.checked = 1;
+    state.activity.total = 1;
+    state.activity.inactive = 1;
+    state.cleanup();
+    state = null;
+    const stored = JSON.parse(
+      dom.window.localStorage.getItem("ux_activity_v1")
+    );
+    assert.equal(stored.entries["1"].handle, "alice");
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
     dom.window.close();
   }
 });

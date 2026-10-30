@@ -166,6 +166,14 @@ function activitySummary(state) {
   };
 }
 
+function refreshActivityCounters(state) {
+  const summary = activitySummary(state);
+  state.activity.checked = summary.checked;
+  state.activity.total = summary.total;
+  state.activity.inactive = summary.inactive;
+  state.activity.unknown = summary.unknown;
+}
+
 function restoreActivityTemplateError(state) {
   if (state.activityScan?.stopped !== "template") return;
   state.activity.status = "error";
@@ -562,12 +570,12 @@ export function boot() {
     state.viewer.id = parseTwid(getCookie("twid"));
     state.checkpoint = loadCheckpoint(undefined, handle);
     state.lastScan = loadLastScan(undefined, handle);
+    state.users = [];
+    state.selected = new Set();
     state.activityEntries = loadActivity(undefined, handle);
     state.activityScan = loadActivityScan(undefined, handle);
     hydrateActivityCounters(state);
     state.activeTab = "nonFollowers";
-    state.users = [];
-    state.selected = new Set();
     state.mode = "idle";
     state.error = "";
     ui.render();
@@ -615,6 +623,10 @@ export function boot() {
       String(previousHandle || "").toLowerCase() !==
       String(handle).toLowerCase()
     ) {
+      state.users = [];
+      state.selected = new Set();
+      state.checkpoint = loadCheckpoint(undefined, handle);
+      state.lastScan = loadLastScan(undefined, handle);
       state.activityEntries = loadActivity(undefined, handle);
       state.activityScan = loadActivityScan(undefined, handle);
       hydrateActivityCounters(state);
@@ -896,6 +908,7 @@ export function boot() {
     }
     if (!onFollowing) {
       state.active.running = false;
+      state.active.job = null;
       state.mode = "error";
       state.error = t()("navFailed", {
         url: `https://x.com/${handle}/following`,
@@ -1039,9 +1052,9 @@ export function boot() {
     state.lastScan = scan;
     state.activityEntries = loadActivity(undefined, state.viewer.handle);
     state.activityScan = loadActivityScan(undefined, state.viewer.handle);
-    hydrateActivityCounters(state);
     state.activeTab = "nonFollowers";
     state.users = dedupeUsers(scan.users || []);
+    hydrateActivityCounters(state);
     state.unverified = Boolean(scan.unverified);
     state.source = scan.source || "api";
     state.scan = {
@@ -1511,7 +1524,7 @@ export function boot() {
         ACTIVITY_MIN_DAYS,
         ACTIVITY_MAX_DAYS
       );
-      if (!state.active.running) hydrateActivityCounters(state);
+      if (!state.active.running) refreshActivityCounters(state);
       persist(state);
       ui.toast(t()("settingsSaved"));
       return;
@@ -1653,6 +1666,8 @@ export function boot() {
       state.paused = true;
       if (state.active.job === "activity") {
         state.activity.status = "paused";
+        state.activity.nextAt = 0;
+        state.active.wake?.();
       }
       if (!wasPaused) ui.toast(t()("keepTabVisible"));
       if (state.mode === "unfollowing") ui.update();
@@ -1662,6 +1677,7 @@ export function boot() {
 
   const cleanup = () => {
     if (state.disposed) return;
+    if (state.active.job === "activity") persistActivity(true);
     state.disposed = true;
     state.active.cancelled = true;
     state.active.wake?.();
