@@ -76,3 +76,44 @@ test("uninstall restores fetch and clears the captured template", async () => {
     globalThis.fetch = original;
   }
 });
+
+import { getCapturedActivity, parseActivityTemplate } from "../src/capture.js";
+
+test("parses a UserTweetsAndReplies request", () => {
+  const template = parseActivityTemplate({
+    url: "https://x.com/i/api/graphql/q/UserTweetsAndReplies?variables=%7B%22userId%22%3A%2242%22%7D&features=%7B%7D",
+    method: "GET",
+  });
+  assert.equal(template.operationName, "UserTweetsAndReplies");
+  assert.equal(template.queryId, "q");
+  assert.equal(template.variables.userId, "42");
+});
+
+test("Following parser still ignores activity requests", () => {
+  assert.equal(
+    parseTemplate({
+      url: "https://x.com/i/api/graphql/q/UserTweetsAndReplies",
+      method: "GET",
+    }),
+    null
+  );
+});
+
+test("captures UserTweetsAndReplies without touching Following", async () => {
+  resetCapture();
+  const fakeFetch = async () =>
+    new Response(JSON.stringify({ ok: true }), { status: 200 });
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = fakeFetch;
+    installCapture({ fetchImpl: fakeFetch, xhrImpl: null });
+    await globalThis.fetch(
+      "https://x.com/i/api/graphql/q/UserTweetsAndReplies?variables=%7B%22userId%22%3A%2242%22%7D"
+    );
+    assert.ok(getCapturedActivity());
+    assert.equal(getCapturedFollowing(), null);
+  } finally {
+    uninstallCapture();
+    globalThis.fetch = original;
+  }
+});

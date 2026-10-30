@@ -1,6 +1,9 @@
 import { safeJsonParse } from "./utils.js";
 
-let captured = null;
+let capturedFollowing = null;
+let capturedActivity = null;
+const FOLLOWING_OPERATIONS = new Set(["Following", "followingQuery"]);
+const ACTIVITY_OPERATIONS = new Set(["UserTweetsAndReplies"]);
 const FLAG = "__uxCaptureInstalled";
 
 function absoluteUrl(url) {
@@ -50,8 +53,8 @@ function parseBody(body) {
   return safeJsonParse(body, null);
 }
 
-export function parseTemplate({ url, method = "GET", headers, body } = {}) {
-  const absolute = absoluteUrl(url);
+function parseGraphqlTemplate(input, allowedOperations) {
+  const absolute = absoluteUrl(input?.url);
   if (!absolute) return null;
   let parsed;
   try {
@@ -64,38 +67,34 @@ export function parseTemplate({ url, method = "GET", headers, body } = {}) {
   );
   if (!match) return null;
   const operationName = decodeURIComponent(match[2]);
-  if (operationName !== "Following" && operationName !== "followingQuery") {
-    return null;
-  }
+  if (!allowedOperations.has(operationName)) return null;
   const queryId = decodeURIComponent(match[1]);
-  const upperMethod = String(method || "GET").toUpperCase();
-  const bodyJson = parseBody(body);
-
+  const upperMethod = String(input?.method || "GET").toUpperCase();
+  const bodyJson = parseBody(input?.body);
   let variables = {};
   let features = null;
   let fieldToggles = null;
-
   if (upperMethod === "GET") {
     variables =
       safeJsonParse(parsed.searchParams.get("variables"), {}) || {};
     features = safeJsonParse(parsed.searchParams.get("features"), null);
-    fieldToggles = safeJsonParse(
-      parsed.searchParams.get("fieldToggles"),
-      null
-    );
+    fieldToggles = safeJsonParse(parsed.searchParams.get("fieldToggles"), null);
   } else {
     variables = bodyJson?.variables || {};
     features = bodyJson?.features ?? null;
     fieldToggles = bodyJson?.fieldToggles ?? null;
   }
-
   if (!variables || typeof variables !== "object") variables = {};
-
   return {
     url: absolute,
     method: upperMethod,
-    headers: pickHeaders(headers),
-    body: typeof body === "string" ? body : bodyJson ? JSON.stringify(bodyJson) : "",
+    headers: pickHeaders(input?.headers),
+    body:
+      typeof input?.body === "string"
+        ? input.body
+        : bodyJson
+          ? JSON.stringify(bodyJson)
+          : "",
     variables,
     features,
     fieldToggles,
@@ -104,6 +103,14 @@ export function parseTemplate({ url, method = "GET", headers, body } = {}) {
     capturedAt: Date.now(),
     responseSample: null,
   };
+}
+
+export function parseTemplate(input = {}) {
+  return parseGraphqlTemplate(input, FOLLOWING_OPERATIONS);
+}
+
+export function parseActivityTemplate(input = {}) {
+  return parseGraphqlTemplate(input, ACTIVITY_OPERATIONS);
 }
 
 function requestParts(input, init) {
@@ -123,7 +130,7 @@ function requestParts(input, init) {
   };
 }
 
-function attachSample(response, template) {
+function attachSample(response, template, readCurrent) {
   if (!response || typeof response.clone !== "function") return;
   try {
     const clone = response.clone();
@@ -131,8 +138,9 @@ function attachSample(response, template) {
     clone
       .json()
       .then((json) => {
-        if (captured && captured.capturedAt === template.capturedAt) {
-          captured.responseSample = json;
+        const current = readCurrent();
+        if (current && current.capturedAt === template.capturedAt) {
+          current.responseSample = json;
         }
       })
       .catch(() => {});
@@ -151,12 +159,23 @@ export function installCapture({
   if (typeof fetchImpl === "function" && !fetchImpl[FLAG]) {
     const wrapped = function uxCaptureFetch(input, init) {
       const parts = requestParts(input, init);
-      const template = parseTemplate(parts);
+      const following = parseTemplate(parts);
+      const activity = parseActivityTemplate(parts);
       const promise = fetchImpl.apply(this, arguments);
-      if (template) {
-        captured = template;
+      if (following) {
+        capturedFollowing = following;
         Promise.resolve(promise)
-          .then((response) => attachSample(response, template))
+          .then((response) =>
+            attachSample(response, following, () => capturedFollowing)
+          )
+          .catch(() => {});
+      }
+      if (activity) {
+        capturedActivity = activity;
+        Promise.resolve(promise)
+          .then((response) =>
+            attachSample(response, activity, () => capturedActivity)
+          )
           .catch(() => {});
       }
       return promise;
@@ -184,19 +203,35 @@ export function installCapture({
     proto.send = function uxSend(body) {
       const meta = this.__uxRequest;
       if (meta) {
-        const template = parseTemplate({
+        const input = {
           url: meta.url,
           method: meta.method,
           headers: null,
           body,
-        });
-        if (template) {
-          captured = template;
+        };
+        const following = parseTemplate(input);
+        const activity = parseActivityTemplate(input);
+        if (following) capturedFollowing = following;
+        if (activity) capturedActivity = activity;
+        if (following || activity) {
           this.addEventListener?.("load", () => {
             try {
               const json = safeJsonParse(this.responseText, null);
-              if (json && captured && captured.capturedAt === template.capturedAt) {
-                captured.responseSample = json;
+              if (
+                json &&
+                following &&
+                capturedFollowing &&
+                capturedFollowing.capturedAt === following.capturedAt
+              ) {
+                capturedFollowing.responseSample = json;
+              }
+              if (
+                json &&
+                activity &&
+                capturedActivity &&
+                capturedActivity.capturedAt === activity.capturedAt
+              ) {
+                capturedActivity.responseSample = json;
               }
             } catch {
               // Ignore non-JSON responses.
@@ -240,22 +275,28 @@ export function uninstallCapture() {
     // Ignore a read-only XMLHttpRequest prototype.
   }
 
-  captured = null;
+  capturedFollowing = null;
+  capturedActivity = null;
 }
 
 export function getCapturedFollowing() {
-  return captured;
+  return capturedFollowing;
+}
+
+export function getCapturedActivity() {
+  return capturedActivity;
 }
 
 export function resetCapture() {
-  captured = null;
+  capturedFollowing = null;
+  capturedActivity = null;
 }
 
 export function waitForCapture(timeoutMs = 15000, pollMs = 250) {
   return new Promise((resolve) => {
     const started = Date.now();
     const tick = () => {
-      if (captured) return resolve(captured);
+      if (capturedFollowing) return resolve(capturedFollowing);
       if (Date.now() - started >= timeoutMs) return resolve(null);
       setTimeout(tick, pollMs);
     };
