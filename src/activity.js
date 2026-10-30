@@ -7,9 +7,10 @@ import {
   ACTIVITY_QUERY_ID,
   ACTIVITY_TTL,
   BEARER,
+  DEFAULT_TIMINGS,
 } from "./config.js";
 import { fetchJson } from "./api.js";
-import { clamp, safeJsonParse, sleep } from "./utils.js";
+import { clamp, dedupeUsers, safeJsonParse, sleep } from "./utils.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -398,7 +399,16 @@ function isLookupUnsupported(error) {
   ) {
     return true;
   }
-  return error?.kind === "format" && [400, 403, 404, 405, 410].includes(status);
+  return error?.kind === "format" && [400, 404, 405, 410].includes(status);
+}
+
+function isUserLevelGraphqlError(error) {
+  const message = String(
+    error?.body?.errors?.[0]?.message || error?.message || ""
+  );
+  return /could not find user|user not found|suspended|not authorized to view|protected|unavailable/i.test(
+    message
+  );
 }
 
 export async function runActivityScan(options = {}) {
@@ -425,21 +435,33 @@ export async function runActivityScan(options = {}) {
   const clock =
     typeof options.now === "function"
       ? options.now
-      : () =>
-          Number.isFinite(Number(options.now))
-            ? Number(options.now)
-            : Date.now();
+      : () => {
+          const raw = options.now;
+          if (raw === null || raw === undefined || String(raw).trim() === "") {
+            return Date.now();
+          }
+          const value = Number(raw);
+          return Number.isFinite(value) ? value : Date.now();
+        };
 
-  const delayMin = Math.max(0, Number(timings.scanDelayMin) || 0);
-  const delayMax = Math.max(delayMin, Number(timings.scanDelayMax) || 0);
-  const pauseEvery = Math.max(0, Number(timings.scanPauseEveryPages) || 0);
-  const pauseMs = Math.max(0, Number(timings.scanPauseMs) || 0);
+  const scanTimings = { ...DEFAULT_TIMINGS, ...(timings || {}) };
+  const delayMin = Math.max(0, Number(scanTimings.scanDelayMin) || 0);
+  const delayMax = Math.max(delayMin, Number(scanTimings.scanDelayMax) || 0);
+  const pauseEvery = Math.max(
+    0,
+    Number(scanTimings.scanPauseEveryPages) || 0
+  );
+  const pauseMs = Math.max(0, Number(scanTimings.scanPauseMs) || 0);
 
-  const candidates = (Array.isArray(users) ? users : []).filter((user) => {
-    if (!user || !user.handle) return false;
-    if (force) return true;
-    return !isActivityFresh(activityEntryFor(cache, user), clock());
-  });
+  const candidates = dedupeUsers(Array.isArray(users) ? users : []).filter(
+    (user) => {
+      if (!user || !user.handle) return false;
+      if (force) return true;
+      const cached = activityEntryFor(cache, user);
+      if (cached?.reason === "template") return true;
+      return !isActivityFresh(cached, clock());
+    }
+  );
   const total = candidates.length;
 
   let checked = 0;
@@ -465,33 +487,56 @@ export async function runActivityScan(options = {}) {
   };
 
   const pace = async () => {
+    if (requests > 0) {
+      const wait =
+        delayMax <= delayMin
+          ? delayMin
+          : delayMin + random() * (delayMax - delayMin);
+      if (wait > 0) {
+        onProgress({
+          kind: "delay",
+          ms: wait,
+          checked,
+          total,
+          source: currentSource,
+        });
+        await sleepFn(wait);
+      }
+      if (pauseEvery > 0 && requests % pauseEvery === 0 && pauseMs > 0) {
+        onProgress({
+          kind: "pause",
+          ms: pauseMs,
+          checked,
+          total,
+          source: currentSource,
+        });
+        await sleepFn(pauseMs);
+      }
+    }
     requests += 1;
-    const wait =
-      delayMax <= delayMin
-        ? delayMin
-        : delayMin + random() * (delayMax - delayMin);
-    if (wait > 0) {
-      onProgress({ kind: "delay", ms: wait, checked, total, source: currentSource });
-      await sleepFn(wait);
-    }
-    if (pauseEvery > 0 && requests % pauseEvery === 0 && pauseMs > 0) {
-      onProgress({ kind: "pause", ms: pauseMs, checked, total, source: currentSource });
-      await sleepFn(pauseMs);
-    }
     check();
   };
 
   const processEntry = (user, entry) => {
-    let state = entry.state;
+    const originalState = entry.state;
+    let state =
+      originalState === "known" || originalState === "unknown"
+        ? originalState
+        : "unknown";
+    let parseFailure = state === "unknown" && originalState !== "unknown";
     let lastTweetAt = null;
     if (state === "known") {
       const raw = entry.lastTweetAt;
-      if (raw === null || raw === undefined || raw === "") {
+      if (raw === null || raw === undefined || String(raw).trim() === "") {
         state = "unknown";
+        parseFailure = true;
       } else {
         const value = Number(raw);
         if (Number.isFinite(value) && value >= 0) lastTweetAt = value;
-        else state = "unknown";
+        else {
+          state = "unknown";
+          parseFailure = true;
+        }
       }
     }
     const normalized = {
@@ -500,8 +545,7 @@ export async function runActivityScan(options = {}) {
       state,
       lastTweetAt: state === "known" ? lastTweetAt : null,
       reason:
-        entry.reason ||
-        (state === "unknown" && entry.state === "known" ? "parse" : ""),
+        entry.reason || (state === "unknown" && parseFailure ? "parse" : ""),
       checkedAt: clock(),
       source: entry.source || currentSource,
     };
@@ -531,6 +575,21 @@ export async function runActivityScan(options = {}) {
     }
   };
 
+  const breakGraphql = (user) => {
+    graphqlBroken = true;
+    processEntry(user, {
+      state: "unknown",
+      reason: "template",
+      source: "graphql",
+    });
+    onProgress({
+      kind: "template-broken",
+      checked,
+      total,
+      source: currentSource,
+    });
+  };
+
   const lookupBatch = async (batch) => {
     const ids = batch.filter((user) => user.id).map((user) => String(user.id));
     const names = batch.filter((user) => !user.id).map((user) => user.handle);
@@ -542,6 +601,7 @@ export async function runActivityScan(options = {}) {
         csrf,
         origin,
       });
+      await pace();
       json = await fetchJson(request.url, request.init, {
         fetchImpl,
         signal,
@@ -560,21 +620,24 @@ export async function runActivityScan(options = {}) {
     const fallback = [];
     let matched = 0;
     for (const user of batch) {
+      const handleKey = String(user.handle || "")
+        .replace(/^@/, "")
+        .toLowerCase();
       const item =
         (user.id && parsed.byId.get(String(user.id))) ||
-        parsed.byHandle.get(String(user.handle).toLowerCase());
+        parsed.byHandle.get(handleKey);
       if (!item) {
         fallback.push(user);
         continue;
       }
       matched += 1;
+      if (!user.id && item.id) user.id = String(item.id);
       if (item.state === "known") {
         processEntry(user, { ...item, source: "lookup" });
       } else {
         fallback.push(user);
       }
     }
-    await pace();
     if (batch.length > 0 && matched === 0) {
       throw makeError("lookup-unsupported", "lookup returned no users");
     }
@@ -582,10 +645,6 @@ export async function runActivityScan(options = {}) {
   };
 
   const graphqlUser = async (user) => {
-    if (!user.id) {
-      processEntry(user, { state: "unknown", reason: "no-id", source: "graphql" });
-      return;
-    }
     if (graphqlBroken) {
       processEntry(user, {
         state: "unknown",
@@ -594,13 +653,27 @@ export async function runActivityScan(options = {}) {
       });
       return;
     }
+    if (!user.id) {
+      processEntry(user, { state: "unknown", reason: "no-id", source: "graphql" });
+      return;
+    }
     if (!defaultTemplate) defaultTemplate = buildDefaultActivityTemplate();
-    const request = buildActivityRequest(defaultTemplate, {
-      userId: user.id,
-      count: 20,
-      csrf,
-      origin,
-    });
+    let request;
+    try {
+      request = buildActivityRequest(defaultTemplate, {
+        userId: user.id,
+        count: 20,
+        csrf,
+        origin,
+      });
+    } catch (error) {
+      if (error.kind === "format") {
+        breakGraphql(user);
+        return;
+      }
+      throw error;
+    }
+    await pace();
     let json;
     try {
       json = await fetchJson(request.url, request.init, {
@@ -613,36 +686,22 @@ export async function runActivityScan(options = {}) {
         error.kind === "format" &&
         [400, 404, 405, 410].includes(Number(error.status))
       ) {
-        graphqlBroken = true;
-        processEntry(user, {
-          state: "unknown",
-          reason: "template",
-          source: "graphql",
-        });
-        onProgress({
-          kind: "template-broken",
-          checked,
-          total,
-          source: currentSource,
-        });
+        if (isUserLevelGraphqlError(error)) {
+          processEntry(user, {
+            state: "unknown",
+            reason: "unavailable",
+            source: "graphql",
+          });
+          return;
+        }
+        breakGraphql(user);
         return;
       }
       throw error;
     }
     const parsed = parseUserTweetsPage(json, user.id);
     if (parsed.fatalKind === "template") {
-      graphqlBroken = true;
-      processEntry(user, {
-        state: "unknown",
-        reason: "template",
-        source: "graphql",
-      });
-      onProgress({
-        kind: "template-broken",
-        checked,
-        total,
-        source: currentSource,
-      });
+      breakGraphql(user);
       return;
     }
     if (parsed.fatalKind) {
@@ -653,7 +712,6 @@ export async function runActivityScan(options = {}) {
       });
     }
     processEntry(user, { ...parsed, source: "graphql" });
-    await pace();
   };
 
   onProgress({ kind: "start", total, source: currentSource });
@@ -665,7 +723,7 @@ export async function runActivityScan(options = {}) {
       unknown: 0,
       total: 0,
       source: currentSource,
-      stopped: "done",
+      stopped: graphqlBroken ? "template" : "done",
     });
     return {
       checked,
@@ -673,7 +731,7 @@ export async function runActivityScan(options = {}) {
       unknown,
       total,
       source: currentSource,
-      stopped: "done",
+      stopped: graphqlBroken ? "template" : "done",
     };
   }
 
@@ -742,7 +800,7 @@ export async function runActivityScan(options = {}) {
     unknown,
     total,
     source: currentSource,
-    stopped: "done",
+    stopped: graphqlBroken ? "template" : "done",
   });
   return {
     checked,
@@ -750,6 +808,6 @@ export async function runActivityScan(options = {}) {
     unknown,
     total,
     source: currentSource,
-    stopped: "done",
+    stopped: graphqlBroken ? "template" : "done",
   };
 }

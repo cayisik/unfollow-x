@@ -666,3 +666,189 @@ test("runActivityScan marks remaining accounts unknown when the GraphQL template
   assert.equal(output.inactive, 0);
   assert.ok(progress.some((event) => event.kind === "template-broken"));
 });
+
+test("runActivityScan paces before requests and skips the first delay", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const sleeps = [];
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => jsonResponse(fixture("user-tweets.json")),
+    sleepFn: async (ms) => {
+      sleeps.push(ms);
+    },
+    timings: {
+      scanDelayMin: 100,
+      scanDelayMax: 100,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    },
+    now: NOW,
+  });
+  assert.deepEqual(sleeps, [100]);
+  assert.equal(output.checked, 2);
+});
+
+test("runActivityScan pauses once before the request after the page threshold", async () => {
+  const users = Array.from({ length: 11 }, (_, index) =>
+    makeUser(index + 1, `u${index + 1}`)
+  );
+  const events = [];
+  await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      events.push("fetch");
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async (ms) => {
+      events.push(`sleep:${ms}`);
+    },
+    timings: {
+      scanDelayMin: 0,
+      scanDelayMax: 0,
+      scanPauseEveryPages: 10,
+      scanPauseMs: 500,
+    },
+    now: NOW,
+  });
+  assert.equal(events.filter((event) => event === "sleep:500").length, 1);
+  assert.deepEqual(events.slice(9, 12), ["fetch", "sleep:500", "fetch"]);
+});
+
+test("runActivityScan resolves a handle-only fallback to an id for GraphQL", async () => {
+  const user = { handle: "@alice", name: "alice", followsViewer: false };
+  const calls = [];
+  const results = [];
+  const output = await runActivityScan({
+    users: [user],
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("users/lookup")) {
+        return jsonResponse([
+          { id_str: "42", screen_name: "alice", statuses_count: 7 },
+        ]);
+      }
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onResult: (scanned, entry) => results.push({ scanned, entry }),
+  });
+  assert.equal(user.id, "42");
+  assert.equal(calls.length, 2);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].entry.state, "known");
+  assert.equal(results[0].entry.id, "42");
+  assert.equal(results[0].entry.source, "graphql");
+  assert.equal(output.checked, 1);
+});
+
+test("runActivityScan keeps scanning after a per-user GraphQL 404", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  let calls = 0;
+  const progress = [];
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse({ errors: [{ message: "Could not find user" }] }, 404);
+      }
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onProgress: (event) => progress.push(event),
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls, 2);
+  assert.equal(results[0].state, "unknown");
+  assert.equal(results[0].reason, "unavailable");
+  assert.equal(results[1].state, "known");
+  assert.equal(progress.some((event) => event.kind === "template-broken"), false);
+  assert.equal(output.stopped, "done");
+  assert.equal(output.checked, 2);
+});
+
+test("runActivityScan reports a template break as a template stop", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob"), makeUser(3, "carol")];
+  let calls = 0;
+  const progress = [];
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      calls += 1;
+      return jsonResponse({ errors: [{ message: "Unknown queryId" }] });
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onProgress: (event) => progress.push(event),
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls, 1);
+  assert.equal(progress.filter((event) => event.kind === "template-broken").length, 1);
+  assert.equal(output.stopped, "template");
+  assert.equal(output.checked, 3);
+  assert.equal(output.unknown, 3);
+  assert.ok(results.every((entry) => entry.reason === "template"));
+});
+
+test("runActivityScan rechecks fresh cache entries marked template", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const cache = {
+    "1": { id: "1", handle: "alice", state: "unknown", reason: "template", checkedAt: NOW },
+    "2": { id: "2", handle: "bob", state: "known", lastTweetAt: NOW - 1000, checkedAt: NOW },
+  };
+  let calls = 0;
+  const output = await runActivityScan({
+    users,
+    cache,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      calls += 1;
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+  });
+  assert.equal(calls, 1);
+  assert.equal(output.checked, 1);
+});
+
+test("runActivityScan deduplicates users before checking", async () => {
+  const users = [makeUser(1, "alice"), makeUser(1, "alice"), makeUser(1, "alice")];
+  const calls = [];
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      const ids = (new URL(url).searchParams.get("user_id") || "")
+        .split(",")
+        .filter(Boolean);
+      return jsonResponse(lookupPayload(ids));
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(new URL(calls[0]).searchParams.get("user_id"), "1");
+  assert.equal(output.checked, 1);
+  assert.equal(results.length, 1);
+});
