@@ -856,6 +856,8 @@ test("inactive confirmation only counts visible inactive selections", () => {
 test("following controls lock while an activity scan is running", () => {
   const s = state();
   s.activeTab = "nonFollowers";
+  s.partial = true;
+  s.checkpoint = { users: [{ id: "1" }], cursor: "next" };
   s.active = { job: "activity", running: true };
   const html = renderResultsView(s);
   const document = new JSDOM(`<!doctype html><body>${html}</body>`).window
@@ -865,6 +867,18 @@ test("following controls lock while an activity scan is running", () => {
     true
   );
   assert.equal(document.querySelector('[data-action="rescan"]').disabled, true);
+  assert.equal(document.querySelector('[data-action="resume"]').disabled, true);
+
+  s.active = { job: null, running: false };
+  const unlocked = new JSDOM(
+    `<!doctype html><body>${renderResultsView(s)}</body>`
+  ).window.document;
+  assert.equal(
+    unlocked.querySelector('[data-action="unfollow"]').disabled,
+    false
+  );
+  assert.equal(unlocked.querySelector('[data-action="rescan"]').disabled, false);
+  assert.equal(unlocked.querySelector('[data-action="resume"]').disabled, false);
 });
 
 test("inactive selection with unknown follow-back keeps unfollow disabled", () => {

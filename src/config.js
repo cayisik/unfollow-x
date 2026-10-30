@@ -261,6 +261,7 @@ export const I18N = {
     tooManyRequests: "Rate limited. Try again at {time}.",
     sessionExpired: "Session expired. Reload x.com and log in.",
     scanBlocked: "X blocked the scan. Wait a few hours or use the DOM fallback.",
+    activityBlocked: "X blocked the activity scan. Wait a few hours and retry.",
     networkError: "Network error. Check your connection and resume.",
     keepTabVisible: "Keep this tab visible while scanning.",
     resumeScan: "Resume scan",
@@ -479,6 +480,8 @@ export const I18N = {
     sessionExpired: "Oturum süresi doldu. x.com'u yenileyip giriş yap.",
     scanBlocked:
       "X taramayı engelledi. Birkaç saat bekle veya DOM yedeğini kullan.",
+    activityBlocked:
+      "X aktivite taramasını engelledi. Birkaç saat bekleyip tekrar dene.",
     networkError: "Ağ hatası. Bağlantını kontrol edip devam et.",
     keepTabVisible: "Tarama sırasında bu sekmeyi görünür tut.",
     resumeScan: "Taramaya devam et",

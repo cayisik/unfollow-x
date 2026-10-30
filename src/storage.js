@@ -205,7 +205,10 @@ export function loadActivityScan(
 ) {
   const scan = readJson(storage, ACTIVITY_SCAN_KEY);
   if (!scan) return null;
-  if (!isFresh(scan.savedAt, ACTIVITY_TTL)) return null;
+  if (!isFresh(scan.savedAt, ACTIVITY_TTL)) {
+    clearActivityScan(storage);
+    return null;
+  }
   if (!sameViewer(viewerHandle, scan.viewerHandle)) return null;
   return scan;
 }

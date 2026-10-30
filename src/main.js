@@ -1297,7 +1297,7 @@ export function boot() {
         } else if (error?.kind === "auth") {
           state.activity.error = t()("sessionExpired");
         } else if (error?.kind === "blocked") {
-          state.activity.error = t()("scanBlocked");
+          state.activity.error = t()("activityBlocked");
         } else if (error?.kind === "network") {
           state.activity.error = t()("networkError");
         } else {

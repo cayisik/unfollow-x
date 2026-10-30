@@ -211,6 +211,20 @@ test("activity scan checkpoint expires after 24h", () => {
     })
   );
   assert.equal(loadActivityScan(storage, "me"), null);
+  assert.equal(storage.getItem("ux_activity_scan_v1"), null);
+});
+
+test("activity scan load keeps another viewer's record on mismatch", () => {
+  const storage = memoryStorage();
+  saveActivityScan(storage, {
+    viewerHandle: "me",
+    startedAt: Date.now(),
+    checked: 10,
+    total: 20,
+    complete: false,
+  });
+  assert.equal(loadActivityScan(storage, "other"), null);
+  assert.ok(storage.getItem("ux_activity_scan_v1"));
 });
 
 test("saving activity requires a viewer handle", () => {

@@ -235,6 +235,7 @@
       tooManyRequests: "Rate limited. Try again at {time}.",
       sessionExpired: "Session expired. Reload x.com and log in.",
       scanBlocked: "X blocked the scan. Wait a few hours or use the DOM fallback.",
+      activityBlocked: "X blocked the activity scan. Wait a few hours and retry.",
       networkError: "Network error. Check your connection and resume.",
       keepTabVisible: "Keep this tab visible while scanning.",
       resumeScan: "Resume scan",
@@ -438,6 +439,7 @@
       tooManyRequests: "H\u0131z limiti. {time} sonra tekrar dene.",
       sessionExpired: "Oturum s\xFCresi doldu. x.com'u yenileyip giri\u015F yap.",
       scanBlocked: "X taramay\u0131 engelledi. Birka\xE7 saat bekle veya DOM yede\u011Fini kullan.",
+      activityBlocked: "X aktivite taramas\u0131n\u0131 engelledi. Birka\xE7 saat bekleyip tekrar dene.",
       networkError: "A\u011F hatas\u0131. Ba\u011Flant\u0131n\u0131 kontrol edip devam et.",
       keepTabVisible: "Tarama s\u0131ras\u0131nda bu sekmeyi g\xF6r\xFCn\xFCr tut.",
       resumeScan: "Taramaya devam et",
@@ -915,7 +917,10 @@
   function loadActivityScan(storage = defaultStorage(), viewerHandle = "") {
     const scan = readJson(storage, ACTIVITY_SCAN_KEY);
     if (!scan) return null;
-    if (!isFresh(scan.savedAt, ACTIVITY_TTL)) return null;
+    if (!isFresh(scan.savedAt, ACTIVITY_TTL)) {
+      clearActivityScan(storage);
+      return null;
+    }
     if (!sameViewer(viewerHandle, scan.viewerHandle)) return null;
     return scan;
   }
@@ -3933,9 +3938,7 @@
         </div>
       </div>
       <div class="ux-results-links">
-        ${state.partial && state.checkpoint ? `<button class="ux-link" data-action="resume">${escapeHTML(
-      t("resumeAfter")
-    )}</button>` : ""}
+        ${state.partial && state.checkpoint ? `<button class="ux-link" data-action="resume" ${activityRunning ? "disabled" : ""}>${escapeHTML(t("resumeAfter"))}</button>` : ""}
         <button class="ux-link" data-action="rescan" ${activityRunning ? "disabled" : ""}>${escapeHTML(t("rescan"))}</button>
       </div>
     </div>
@@ -6394,7 +6397,7 @@
           } else if (error?.kind === "auth") {
             state.activity.error = t()("sessionExpired");
           } else if (error?.kind === "blocked") {
-            state.activity.error = t()("scanBlocked");
+            state.activity.error = t()("activityBlocked");
           } else if (error?.kind === "network") {
             state.activity.error = t()("networkError");
           } else {

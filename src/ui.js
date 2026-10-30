@@ -1147,9 +1147,9 @@ function renderNonFollowersView(state, t) {
       <div class="ux-results-links">
         ${
           state.partial && state.checkpoint
-            ? `<button class="ux-link" data-action="resume">${escapeHTML(
-                t("resumeAfter")
-              )}</button>`
+            ? `<button class="ux-link" data-action="resume" ${
+                activityRunning ? "disabled" : ""
+              }>${escapeHTML(t("resumeAfter"))}</button>`
             : ""
         }
         <button class="ux-link" data-action="rescan" ${
