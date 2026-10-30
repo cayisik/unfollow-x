@@ -1275,7 +1275,7 @@ const authorFor = (url) => {
   return variables.userId;
 };
 
-test("runActivityScan falls back to GraphQL on a show 400", async () => {
+test("runActivityScan falls back to GraphQL on an endpoint-level show 400", async () => {
   const calls = [];
   const results = [];
   const output = await runActivityScan({
@@ -1286,7 +1286,7 @@ test("runActivityScan falls back to GraphQL on a show 400", async () => {
         return jsonResponse({ errors: [{ message: "not found" }] }, 404);
       }
       if (isShowUrl(url)) {
-        return jsonResponse({ errors: [{ message: "User not found." }] }, 400);
+        return jsonResponse({ errors: [{ message: "Bad Request" }] }, 400);
       }
       return jsonResponse(authorPage(authorFor(url)));
     },
@@ -1300,6 +1300,75 @@ test("runActivityScan falls back to GraphQL on a show 400", async () => {
   assert.equal(output.checked, 1);
   assert.equal(results[0].state, "known");
   assert.equal(results[0].source, "graphql");
+});
+
+test("runActivityScan keeps a user-level phrase on 405 endpoint-level", async () => {
+  const calls = [];
+  const results = [];
+  const output = await runActivityScan({
+    users: [makeUser(1, "alice")],
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        return jsonResponse(
+          { errors: [{ message: "User not found." }] },
+          405
+        );
+      }
+      return jsonResponse(authorPage(authorFor(url)));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls.filter(isShowUrl).length, 1);
+  assert.equal(output.source, "graphql");
+  assert.equal(results[0].source, "graphql");
+});
+
+test("runActivityScan keeps show mode after a per-user show 404", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const results = [];
+  let graphqlCalls = 0;
+  let showCalls = 0;
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        showCalls += 1;
+        const id = new URL(String(url)).searchParams.get("user_id");
+        if (id === "1") {
+          return jsonResponse(
+            { errors: [{ message: "User not found." }] },
+            404
+          );
+        }
+        return jsonResponse(showUserPayload(id));
+      }
+      graphqlCalls += 1;
+      return jsonResponse(authorPage(authorFor(url)));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(showCalls, 2);
+  assert.equal(graphqlCalls, 0);
+  assert.equal(output.source, "show");
+  assert.equal(output.checked, 2);
+  assert.equal(results[0].state, "unknown");
+  assert.equal(results[0].reason, "unavailable");
+  assert.equal(results[0].source, "show");
+  assert.equal(results[1].state, "known");
+  assert.equal(results[1].source, "show");
 });
 
 test("runActivityScan keeps a 403 show error per-user and stays on show", async () => {

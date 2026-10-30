@@ -780,6 +780,19 @@ export async function runActivityScan(options = {}) {
     }
   };
 
+  const switchToGraphql = async (user, reason) => {
+    showMode = false;
+    currentSource = "graphql";
+    onProgress({
+      kind: "fallback",
+      to: "graphql",
+      reason,
+      checked,
+      total,
+    });
+    await graphqlUser(user);
+  };
+
   const showUser = async (user) => {
     if (!showMode) {
       await graphqlUser(user);
@@ -792,16 +805,7 @@ export async function runActivityScan(options = {}) {
         : buildShowUserRequest({ screenName: user.handle, csrf, origin });
     } catch (error) {
       if (error.kind !== "format") throw error;
-      showMode = false;
-      currentSource = "graphql";
-      onProgress({
-        kind: "fallback",
-        to: "graphql",
-        reason: error.message,
-        checked,
-        total,
-      });
-      await graphqlUser(user);
+      await switchToGraphql(user, error.message);
       return;
     }
     await pace();
@@ -813,7 +817,9 @@ export async function runActivityScan(options = {}) {
         sleepFn,
       });
     } catch (error) {
-      if (Number(error.status) === 403 && isUserLevelGraphqlError(error)) {
+      const status = Number(error?.status);
+      const userLevel = error.kind !== "rate" && isUserLevelGraphqlError(error);
+      if (userLevel && (status === 403 || status === 404)) {
         processEntry(user, {
           state: "unknown",
           reason: "unavailable",
@@ -822,19 +828,10 @@ export async function runActivityScan(options = {}) {
         return;
       }
       if (isLookupUnsupported(error)) {
-        showMode = false;
-        currentSource = "graphql";
-        onProgress({
-          kind: "fallback",
-          to: "graphql",
-          reason: error.message,
-          checked,
-          total,
-        });
-        await graphqlUser(user);
+        await switchToGraphql(user, error.message);
         return;
       }
-      if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
+      if (userLevel) {
         processEntry(user, {
           state: "unknown",
           reason: "unavailable",
@@ -846,16 +843,7 @@ export async function runActivityScan(options = {}) {
     }
     const item = parseShowUser(json);
     if (!item) {
-      showMode = false;
-      currentSource = "graphql";
-      onProgress({
-        kind: "fallback",
-        to: "graphql",
-        reason: "invalid show response",
-        checked,
-        total,
-      });
-      await graphqlUser(user);
+      await switchToGraphql(user, "invalid show response");
       return;
     }
     if (!user.id && item.id) user.id = String(item.id);
