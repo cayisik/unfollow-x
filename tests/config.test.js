@@ -22,7 +22,7 @@ test("t interpolates and falls back to English", () => {
 });
 
 test("timings are sane", () => {
-  assert.equal(VERSION, "0.3.0");
+  assert.equal(VERSION, "0.3.1");
   assert.ok(DEFAULT_TIMINGS.unfollowDelayMin >= 8000);
   assert.ok(DEFAULT_TIMINGS.maxUnfollows <= 400);
   assert.ok(I18N.en && I18N.tr);

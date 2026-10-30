@@ -1,7 +1,7 @@
 /* Unfollow X — paste into the console on x.com. See README.md. */
 (() => {
   // src/config.js
-  var VERSION = "0.3.0";
+  var VERSION = "0.3.1";
   var APP_ID = "ux-app";
   var STYLE_ID = "ux-style";
   var STORAGE_KEY = "ux_state_v1";

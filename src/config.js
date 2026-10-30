@@ -1,6 +1,6 @@
 // Central configuration: constants, localization, and defaults.
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.3.1";
 
 export const APP_ID = "ux-app";
 export const STYLE_ID = "ux-style";
