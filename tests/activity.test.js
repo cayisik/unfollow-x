@@ -386,3 +386,77 @@ test("buildActivityRequest preserves a POST template", () => {
   assert.equal(body.queryId, "q");
   assert.equal(body.features.f, true);
 });
+
+test("buildLookupRequest requires a selector", () => {
+  assert.throws(
+    () => buildLookupRequest({}),
+    (error) =>
+      error.kind === "format" &&
+      /user_id or screen_name/.test(error.message)
+  );
+});
+
+test("buildLookupRequest rejects mixed selector types", () => {
+  assert.throws(
+    () => buildLookupRequest({ userIds: ["1"], screenNames: ["alice"] }),
+    (error) =>
+      error.kind === "format" && /one selector type/.test(error.message)
+  );
+});
+
+test("buildLookupRequest normalizes screen names", () => {
+  const request = buildLookupRequest({
+    screenNames: ["@alice", " bob ", ""],
+    origin: "https://x.com",
+  });
+  const url = new URL(request.url);
+  assert.equal(url.searchParams.get("screen_name"), "alice,bob");
+  assert.equal(url.searchParams.get("user_id"), null);
+});
+
+test("buildActivityRequest drops a stale cursor from GET variables", () => {
+  const template = buildDefaultActivityTemplate();
+  template.variables.cursor = "stale";
+  const request = buildActivityRequest(template, { userId: "9" });
+  const url = new URL(request.url);
+  const variables = JSON.parse(url.searchParams.get("variables"));
+  assert.equal(Object.hasOwn(variables, "cursor"), false);
+});
+
+test("buildActivityRequest overrides count and forwards the transaction id", () => {
+  const template = {
+    ...buildDefaultActivityTemplate(),
+    headers: { "x-client-transaction-id": "txn-123" },
+  };
+  const request = buildActivityRequest(template, {
+    userId: "9",
+    count: 7,
+    csrf: "t",
+  });
+  const url = new URL(request.url);
+  const variables = JSON.parse(url.searchParams.get("variables"));
+  assert.equal(variables.count, 7);
+  assert.equal(request.init.headers["x-client-transaction-id"], "txn-123");
+});
+
+test("buildActivityRequest sets JSON content type for POST templates", () => {
+  const template = {
+    url: "https://x.com/i/api/graphql/q/UserTweetsAndReplies",
+    method: "POST",
+    headers: { "x-client-transaction-id": "txn-456" },
+    body: JSON.stringify({
+      variables: { userId: "old", count: 20 },
+      queryId: "q",
+      features: { f: true },
+    }),
+    variables: { userId: "old", count: 20 },
+    features: { f: true },
+    fieldToggles: null,
+    queryId: "q",
+    operationName: "UserTweetsAndReplies",
+  };
+  const request = buildActivityRequest(template, { userId: "7", csrf: "t" });
+  assert.equal(request.init.method, "POST");
+  assert.equal(request.init.headers["content-type"], "application/json");
+  assert.equal(request.init.headers["x-client-transaction-id"], "txn-456");
+});

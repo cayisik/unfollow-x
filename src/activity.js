@@ -262,15 +262,32 @@ function authHeaders(csrf, isJson, transactionId) {
   return headers;
 }
 
+function normalizeSelector(values, handles = false) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => (value === null || value === undefined ? "" : String(value)))
+    .map((value) => value.trim())
+    .map((value) => (handles ? value.replace(/^@/, "") : value))
+    .filter(Boolean);
+}
+
 export function buildLookupRequest({
   userIds = [],
   screenNames = [],
   csrf = "",
   origin = "",
 } = {}) {
+  const ids = normalizeSelector(userIds);
+  const names = normalizeSelector(screenNames, true);
+  if (!ids.length && !names.length) {
+    throw makeError("format", "lookup requires user_id or screen_name");
+  }
+  if (ids.length && names.length) {
+    throw makeError("format", "lookup accepts one selector type");
+  }
   const url = new URL("/i/api/1.1/users/lookup.json", originOf(origin));
-  if (userIds.length) url.searchParams.set("user_id", userIds.join(","));
-  if (screenNames.length) url.searchParams.set("screen_name", screenNames.join(","));
+  if (ids.length) url.searchParams.set("user_id", ids.join(","));
+  if (names.length) url.searchParams.set("screen_name", names.join(","));
   url.searchParams.set("include_entities", "true");
   return {
     url: url.toString(),
