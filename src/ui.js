@@ -857,7 +857,7 @@ function renderActivityProgress(state, t) {
   return `<div class="ux-card ux-activity-progress">
     <div class="ux-card-line"><span class="ux-live-dot${
       paused ? " is-paused" : ""
-    }"></span><strong>${escapeHTML(
+    }" data-activity-dot></span><strong data-activity-status>${escapeHTML(
       paused ? t("paused") : t("activityScanning")
     )}</strong><span class="ux-muted" data-activity-source>${escapeHTML(
       activity.source === "graphql" ? t("activitySourceProfile") : t("activitySourceBatch")
@@ -978,7 +978,11 @@ function renderActivityView(state, t) {
       ${header}
       ${warnings.join("")}
       <div class="ux-activity-intro">
-        <p>${escapeHTML(t("activityBody"))}</p>
+        <p>${escapeHTML(
+          t("activityBody", {
+            days: state.activityDays ?? ACTIVITY_DEFAULT_DAYS,
+          })
+        )}</p>
         <button class="ux-btn ux-btn-primary ux-btn-block" data-action="start-activity">${escapeHTML(
           scanLabel
         )}</button>
@@ -1418,15 +1422,16 @@ export function pillLabel(state) {
     ) || 0}`;
   }
   if (state.mode === "results" || state.mode === "done") {
-    if (state.activeTab === "inactive") {
-      const count = getDisplayUsers(state, "inactive").length;
-      return count === 1
-        ? t("activityFoundOne")
-        : t("activityFound", { count });
+    if (
+      state.activity?.status === "scanning" ||
+      state.activity?.status === "paused"
+    ) {
+      return t("pillActivity");
     }
-    return t("pillResults", {
-      count: getDisplayUsers(state, "nonFollowers").length,
-    });
+    if (state.activeTab === "inactive") {
+      return t("pillInactive", { count: getDisplayUsers(state).length });
+    }
+    return t("pillResults", { count: getDisplayUsers(state).length });
   }
   return t("pillIdle");
 }
@@ -1452,6 +1457,11 @@ export function countdownText(state) {
       seconds: Math.ceil((Number(state.scanPauseUntil) - now) / 1000),
     });
   }
+  if (Number(state.activity?.nextAt) > now) {
+    return t("nextActionIn", {
+      seconds: Math.ceil((Number(state.activity.nextAt) - now) / 1000),
+    });
+  }
   if (Number(state.unfollow?.nextAt) > now) {
     return t("nextActionIn", {
       seconds: Math.ceil((Number(state.unfollow.nextAt) - now) / 1000),
@@ -1468,7 +1478,11 @@ function field(label, key, value, { min = 0, max = 9999, step = 1 } = {}) {
   )}" min="${min}" max="${max}" step="${step}" inputmode="decimal"></label>`;
 }
 
-export function settingsHTML(timings = {}, language = "en") {
+export function settingsHTML(
+  timings = {},
+  language = "en",
+  activityDays = ACTIVITY_DEFAULT_DAYS
+) {
   const t = makeT(language);
   const merged = { ...DEFAULT_TIMINGS, ...timings };
   const seconds = (value) => (Number(value) / 1000).toFixed(1);
@@ -1497,6 +1511,10 @@ export function settingsHTML(timings = {}, language = "en") {
       ${field(t("usersPerRequest"), "usersPerRequest", merged.usersPerRequest, {
         min: 1,
         max: 100,
+      })}
+      ${field(t("activityDays"), "activityDays", activityDays, {
+        min: 1,
+        max: 365,
       })}
     </div>
     <div class="ux-settings-group">
@@ -1531,7 +1549,7 @@ export function settingsHTML(timings = {}, language = "en") {
   </div>`;
 }
 
-export function readSettings(root) {
+export function readSettings(root, activityDaysFallback = ACTIVITY_DEFAULT_DAYS) {
   const read = (key, fallback) => {
     const element = root?.querySelector?.(`[data-setting="${key}"]`);
     const number = Number(element?.value);
@@ -1570,6 +1588,9 @@ export function readSettings(root) {
       3600000
     ),
     maxUnfollows: Math.round(clamp(read("maxUnfollows", 190), 1, 400)),
+    activityDays: Math.round(
+      clamp(read("activityDays", activityDaysFallback), 1, 365)
+    ),
   };
 }
 
@@ -1916,7 +1937,151 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
 
   const t = () => makeT(state.language);
 
+  const updateActivity = () => {
+    const users = getDisplayUsers(state);
+    const list = root.querySelector("[data-activity-list]");
+    if (list) {
+      const signature = users.map(keyOf).join("|");
+      if (list.getAttribute("data-signature") !== signature) {
+        list.innerHTML = users.length
+          ? users
+              .map((user) =>
+                renderRow(user, state, activityNote(state, user, t()))
+              )
+              .join("")
+          : renderActivityEmpty(state, t());
+        list.setAttribute("data-signature", signature);
+      }
+    }
+    const unknownHost = root.querySelector("[data-activity-unknown-host]");
+    if (unknownHost) {
+      const unknown = getUnknownActivityUsers(state);
+      const signature = unknown.map(keyOf).join("|");
+      if (unknownHost.getAttribute("data-signature") !== signature) {
+        unknownHost.innerHTML = renderUnknownSection(state, t());
+        unknownHost.setAttribute("data-signature", signature);
+      }
+    }
+    const count = root.querySelector("[data-activity-count]");
+    if (count) count.textContent = String(users.length);
+    const inactiveTab = root.querySelector(
+      '[data-tab="inactive"] .ux-tab-count'
+    );
+    if (inactiveTab) {
+      inactiveTab.textContent = String(
+        (state.users || []).filter(
+          (user) => activityStatus(state, user) === "inactive"
+        ).length
+      );
+    }
+    const unit = root.querySelector("[data-activity-unit]");
+    if (unit) {
+      unit.textContent =
+        users.length === 1 ? t()("activityUnitOne") : t()("activityUnit");
+    }
+    const progress = root.querySelector("[data-activity-progress]");
+    if (progress) {
+      progress.textContent = t()("activityProgress", {
+        checked: Number(state.activity?.checked) || 0,
+        total: Number(state.activity?.total) || 0,
+      });
+    }
+    const bar = root.querySelector("[data-activity-bar]");
+    if (bar) {
+      const total = Number(state.activity?.total) || 0;
+      const checked = Number(state.activity?.checked) || 0;
+      bar.style.width = `${total ? clamp((checked / total) * 100, 0, 100) : 0}%`;
+    }
+    const current = root.querySelector("[data-activity-current]");
+    if (current) {
+      current.textContent = t()("activityCurrent", {
+        handle: state.activity?.current || "?",
+      });
+    }
+    const inactive = Number(state.activity?.inactive) || 0;
+    const found = root.querySelector("[data-activity-found]");
+    if (found) {
+      found.textContent = t()(
+        inactive === 1 ? "activityFoundOne" : "activityFound",
+        { count: inactive }
+      );
+    }
+    const unknownLive = root.querySelector("[data-activity-unknown-live]");
+    if (unknownLive) {
+      unknownLive.textContent = t()("activityUnknownCount", {
+        count: Number(state.activity?.unknown) || 0,
+      });
+    }
+    const unknownSubline = root.querySelector("[data-activity-unknown]");
+    if (unknownSubline) {
+      unknownSubline.textContent = t()("activityUnknownCount", {
+        count: getUnknownActivityUsers(state).length,
+      });
+    }
+    const hiddenCount = root.querySelector("[data-hidden-count]");
+    if (hiddenCount) {
+      hiddenCount.textContent = t()("hiddenCount", {
+        count: setOf(state.hidden).size,
+      });
+    }
+    const source = root.querySelector("[data-activity-source]");
+    if (source) {
+      source.textContent =
+        state.activity?.source === "graphql"
+          ? t()("activitySourceProfile")
+          : t()("activitySourceBatch");
+    }
+    const paused = state.activity?.status === "paused";
+    const status = root.querySelector("[data-activity-status]");
+    if (status) {
+      status.textContent = paused ? t()("paused") : t()("activityScanning");
+    }
+    const dot = root.querySelector("[data-activity-dot]");
+    if (dot) dot.classList.toggle("is-paused", paused);
+    const hint = root.querySelector("[data-activity-hint]");
+    if (hint) {
+      hint.textContent = countdownText(state) || t()("activityHint");
+    }
+    const toggle = root.querySelector("[data-activity-toggle]");
+    if (toggle) {
+      toggle.setAttribute(
+        "data-action",
+        paused ? "resume-activity" : "pause-activity"
+      );
+      toggle.textContent = paused ? t()("resume") : t()("pause");
+    }
+    const selectedCount = visibleSelectedCount(state);
+    const unfollow = root.querySelector('[data-action="unfollow"]');
+    if (unfollow) {
+      unfollow.disabled =
+        selectedCount === 0 ||
+        Boolean(state.unverified) ||
+        state.activity?.status === "scanning" ||
+        state.activity?.status === "paused";
+      unfollow.textContent = `${t()("unfollow")}${
+        selectedCount ? ` (${selectedCount})` : ""
+      }`;
+    }
+    const selectAll = root.querySelector("[data-select-all]");
+    if (selectAll) {
+      const selected = setOf(state.selected);
+      const all =
+        users.length > 0 && users.every((user) => selected.has(keyOf(user)));
+      const some = users.some((user) => selected.has(keyOf(user)));
+      selectAll.checked = all;
+      selectAll.indeterminate = some && !all;
+    }
+    root.querySelectorAll("[data-filter]").forEach((button) => {
+      const key = button.getAttribute("data-filter");
+      button.classList.toggle("is-on", Boolean(state.filters?.[key]));
+    });
+  };
+
   const updateResults = () => {
+    if ((state.activeTab || "nonFollowers") === "inactive") {
+      updateActivity();
+      return;
+    }
     const users = getDisplayUsers(state);
     const list = root.querySelector("[data-list]");
     if (list) {
@@ -2101,7 +2266,11 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     const dialog = showDialog({
       title: t()("settingsTitle"),
       body: t()("settingsBody"),
-      contentHTML: settingsHTML(state.timings, state.language),
+      contentHTML: settingsHTML(
+        state.timings,
+        state.language,
+        state.activityDays ?? ACTIVITY_DEFAULT_DAYS
+      ),
       confirmLabel: t()("save"),
       cancelLabel: t()("cancel"),
       extraLabel: t()("restoreDefaults"),
@@ -2118,8 +2287,12 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
         }
       },
       onConfirm: (overlay) => {
-        const timings = readSettings(overlay);
+        const timings = readSettings(
+          overlay,
+          state.activityDays ?? ACTIVITY_DEFAULT_DAYS
+        );
         state.timings = timings;
+        state.activityDays = timings.activityDays;
         onAction("save-settings", timings);
       },
     });
@@ -2152,9 +2325,23 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     }
     if (state.unverified) return;
     const count = selected.length;
+    const activityTab = state.activeTab === "inactive";
+    const followers = selected.filter(
+      (user) => user.followsViewer === true
+    ).length;
     showDialog({
-      title: t()("unfollowConfirmTitle", { count }),
-      body: t()("unfollowConfirmBody"),
+      title: activityTab
+        ? t()("activityUnfollowTitle", { count })
+        : t()("unfollowConfirmTitle", { count }),
+      body: activityTab
+        ? t()("activityUnfollowBody")
+        : t()("unfollowConfirmBody"),
+      contentHTML:
+        activityTab && followers
+          ? `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+              t()("activityFollowsWarning", { count: followers })
+            )}</span></div>`
+          : "",
       confirmLabel: t()("unfollowConfirmBtn", { count }),
       cancelLabel: t()("cancel"),
       destructive: true,
@@ -2189,12 +2376,45 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
         "retry-scan",
         "back",
         "open-following",
+        "tab",
+        "start-activity",
+        "pause-activity",
+        "resume-activity",
+        "cancel-activity",
+        "clear-activity",
       ]);
       if (actions.has(action)) {
         event.preventDefault();
         if (action === "settings") openSettings();
         else if (action === "manual-handle") openManualHandle();
-        else if (action === "select-none") {
+        else if (action === "tab") {
+          const tab = actionElement.getAttribute("data-tab");
+          if (tab === "inactive" || tab === "nonFollowers") {
+            state.activeTab = tab;
+            state.selected = new Set();
+            onChange();
+            render();
+          }
+          return;
+        } else if (action === "clear-activity") {
+          showDialog({
+            title: t()("activityClearTitle"),
+            body: t()("activityClearBody"),
+            confirmLabel: t()("activityClear"),
+            cancelLabel: t()("cancel"),
+            destructive: true,
+            onConfirm: () => onAction("clear-activity"),
+          });
+          return;
+        } else if (
+          action === "start-activity" ||
+          action === "pause-activity" ||
+          action === "resume-activity" ||
+          action === "cancel-activity"
+        ) {
+          onAction(action);
+          return;
+        } else if (action === "select-none") {
           state.selected = new Set();
           onChange();
           update();

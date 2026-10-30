@@ -330,7 +330,7 @@ export const I18N = {
     tabInactive: "Inactive",
     activityKicker: "Activity audit",
     activityBody:
-      "Find accounts you follow that have not posted, reposted, or replied in the last 30 days.",
+      "Find accounts you follow that have not posted, reposted, or replied in the last {days} days.",
     activityStart: "Start activity scan",
     activityScanning: "Checking activity…",
     activityHint: "Keep this tab visible. You can pause or cancel at any time.",
@@ -551,7 +551,7 @@ export const I18N = {
     tabInactive: "Pasif hesaplar",
     activityKicker: "Aktivite denetimi",
     activityBody:
-      "Takip ettiğin hesaplardan son 30 günde gönderi, retweet veya yanıt paylaşmayanları bul.",
+      "Takip ettiğin hesaplardan son {days} günde gönderi, retweet veya yanıt paylaşmayanları bul.",
     activityStart: "Aktivite taramasını başlat",
     activityScanning: "Aktivite kontrol ediliyor…",
     activityHint:

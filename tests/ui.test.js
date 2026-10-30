@@ -699,3 +699,58 @@ test("orphan activity entries do not satisfy the activity data check", () => {
   assert.doesNotMatch(html, /data-action="clear-activity"/);
   assert.doesNotMatch(html, /data-row="99"/);
 });
+
+test("mounted panel switches tabs, clears selection, and starts activity", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const actions = [];
+  const ui = mountUI({
+    state: s,
+    onAction: (action) => actions.push(action),
+  });
+  dom.window.document.querySelector('[data-tab="inactive"]').click();
+  assert.equal(s.activeTab, "inactive");
+  assert.equal(s.selected.size, 0);
+  dom.window.document.querySelector('[data-action="start-activity"]').click();
+  assert.deepEqual(actions, ["start-activity"]);
+  ui.destroy();
+});
+
+test("settings form includes the inactivity threshold", () => {
+  const html = settingsHTML(state().timings, "en", 30);
+  assert.match(html, /data-setting="activityDays"/);
+  assert.equal(readSettings(new JSDOM(`<div>${html}</div>`).window.document.querySelector("div")).activityDays, 30);
+});
+
+test("passive unfollow confirmation warns about accounts that follow you", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.selected = new Set(["3"]);
+  s.activityEntries = {
+    "3": {
+      id: "3",
+      handle: "carol",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  mountUI({ state: s });
+  dom.window.document.querySelector('[data-action="unfollow"]').click();
+  const dialog = dom.window.document.querySelector('[role="dialog"]');
+  assert.match(dialog.textContent, /follow you/i);
+});
