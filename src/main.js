@@ -6,6 +6,9 @@ import {
   COOLDOWN_MS,
   SCAN_LIMITS,
   BEARER,
+  ACTIVITY_DEFAULT_DAYS,
+  ACTIVITY_MIN_DAYS,
+  ACTIVITY_MAX_DAYS,
   makeT,
 } from "./config.js";
 import {
@@ -14,6 +17,7 @@ import {
   dedupeUsers,
   formatClock,
   timeAgo,
+  clamp,
 } from "./utils.js";
 import {
   loadState,
@@ -23,11 +27,18 @@ import {
   clearCheckpoint,
   loadLastScan,
   saveLastScan,
+  loadActivity,
+  saveActivity,
+  clearActivity as clearActivityStore,
+  loadActivityScan,
+  saveActivityScan,
+  clearActivityScan,
 } from "./storage.js";
 import {
   installCapture,
   uninstallCapture,
   getCapturedFollowing,
+  getCapturedActivity,
 } from "./capture.js";
 import { buildDefaultTemplates, scanFollowing } from "./api.js";
 import {
@@ -39,6 +50,12 @@ import {
 import { runUnfollowQueue } from "./unfollow.js";
 import { mountUI, showDialog, keyOf } from "./ui.js";
 import { observeXAppearance } from "./theme.js";
+import {
+  runActivityScan,
+  classifyActivity,
+  activityEntryFor,
+  isActivityFresh,
+} from "./activity.js";
 
 let ACTIVE = null;
 
@@ -90,6 +107,54 @@ export function coverageFrom(users) {
   };
 }
 
+function idleActivity() {
+  return {
+    status: "idle",
+    checked: 0,
+    total: 0,
+    inactive: 0,
+    unknown: 0,
+    current: "",
+    source: "lookup",
+    error: "",
+    nextAt: 0,
+    startedAt: 0,
+  };
+}
+
+function hydrateActivityCounters(state) {
+  const entries = Object.values(state.activityEntries || {}).filter((entry) =>
+    isActivityFresh(entry)
+  );
+  const inactive = entries.filter(
+    (entry) => classifyActivity(entry, state.activityDays) === "inactive"
+  ).length;
+  const unknown = entries.filter((entry) => entry.state === "unknown").length;
+  state.activity = {
+    ...idleActivity(),
+    status: entries.length ? "done" : "idle",
+    checked: entries.length,
+    total: entries.length,
+    inactive,
+    unknown,
+  };
+}
+
+function pruneActivityCache(state) {
+  if (!state.viewer.handle) return;
+  const keys = new Set();
+  for (const user of state.users || []) {
+    if (!user || !user.handle) continue;
+    if (user.id) keys.add(String(user.id));
+    keys.add(user.handle.toLowerCase());
+  }
+  for (const key of Object.keys(state.activityEntries)) {
+    if (!keys.has(key)) delete state.activityEntries[key];
+  }
+  saveActivity(undefined, state.viewer.handle, state.activityEntries);
+  hydrateActivityCounters(state);
+}
+
 export function canUnfollow(state) {
   const selected =
     state?.selected instanceof Set
@@ -112,11 +177,21 @@ function normalizeTimings(raw) {
 
 export function createState() {
   const stored = loadState();
+  const activityDays = clamp(
+    Number(stored.activityDays) || ACTIVITY_DEFAULT_DAYS,
+    ACTIVITY_MIN_DAYS,
+    ACTIVITY_MAX_DAYS
+  );
   return {
     mode: "idle",
     language: stored.language === "tr" ? "tr" : "en",
     viewer: { handle: "", id: "" },
     users: [],
+    activeTab: "nonFollowers",
+    activityDays,
+    activityEntries: {},
+    activityScan: null,
+    activity: idleActivity(),
     hidden: new Set(
       Array.isArray(stored.hidden) ? stored.hidden.map(String) : []
     ),
@@ -177,6 +252,7 @@ function persist(state) {
     filters: state.filters,
     panelPos: state.panelPos,
     minimized: state.minimized,
+    activityDays: state.activityDays,
   });
 }
 
@@ -273,6 +349,10 @@ export function boot() {
   const state = createState();
   resolveHandle(state);
 
+  state.activityEntries = loadActivity(undefined, state.viewer.handle);
+  state.activityScan = loadActivityScan(undefined, state.viewer.handle);
+  hydrateActivityCounters(state);
+
   const ui = mountUI({
     state,
     onAction: (action, payload) => handleAction(action, payload),
@@ -289,6 +369,9 @@ export function boot() {
 
   const t = () => makeT(state.language);
   let pauseTimer = null;
+  let activityUiTimer = null;
+  let activityUiAt = 0;
+  let activityCacheWarned = false;
 
   function checkpointNow(stopReason = null) {
     if (!state.users.length || !state.viewer.handle) return;
@@ -334,6 +417,49 @@ export function boot() {
       state.active.wake = finish;
     });
   }
+
+  const scheduleActivityUi = (force = false) => {
+    if (state.disposed) return;
+    if (force) {
+      activityUiAt = Date.now();
+      ui.update();
+      return;
+    }
+    const wait = 500 - (Date.now() - activityUiAt);
+    if (wait <= 0) {
+      activityUiAt = Date.now();
+      ui.update();
+      return;
+    }
+    if (activityUiTimer) return;
+    activityUiTimer = setTimeout(() => {
+      activityUiTimer = null;
+      activityUiAt = Date.now();
+      if (!state.disposed) ui.update();
+    }, wait);
+  };
+
+  const saveActivityCache = () => {
+    if (!state.viewer.handle) return true;
+    return saveActivity(
+      undefined,
+      state.viewer.handle,
+      state.activityEntries
+    );
+  };
+
+  const persistActivity = () => {
+    const ok = saveActivityCache();
+    if (!ok && !activityCacheWarned) {
+      activityCacheWarned = true;
+      ui.toast(t()("activityCacheWarning"));
+    }
+    if (state.activityScan) {
+      state.activityScan.checked = Number(state.activity.checked) || 0;
+      state.activityScan.total = Number(state.activity.total) || 0;
+      saveActivityScan(undefined, state.activityScan);
+    }
+  };
 
   function queueSleep(ms) {
     const paused = state.active.paused;
@@ -389,6 +515,10 @@ export function boot() {
     state.viewer.id = parseTwid(getCookie("twid"));
     state.checkpoint = loadCheckpoint(undefined, handle);
     state.lastScan = loadLastScan(undefined, handle);
+    state.activityEntries = loadActivity(undefined, handle);
+    state.activityScan = loadActivityScan(undefined, handle);
+    hydrateActivityCounters(state);
+    state.activeTab = "nonFollowers";
     state.users = [];
     state.selected = new Set();
     state.mode = "idle";
@@ -579,6 +709,7 @@ export function boot() {
         ? t()("domEmpty")
         : "";
     snapshotLastScan();
+    if (!truncated) pruneActivityCache(state);
     ui.render();
     const count = state.users.filter(
       (user) => user.followsViewer !== true
@@ -648,6 +779,9 @@ export function boot() {
 
     const useResume = Boolean(resume && state.checkpoint);
     state.error = "";
+    state.activeTab = "nonFollowers";
+    state.activityScan = null;
+    clearActivityScan(undefined);
     state.partial = false;
     state.paused = false;
     state.cooldownUntil = 0;
@@ -839,6 +973,10 @@ export function boot() {
       return;
     }
     state.lastScan = scan;
+    state.activityEntries = loadActivity(undefined, state.viewer.handle);
+    state.activityScan = loadActivityScan(undefined, state.viewer.handle);
+    hydrateActivityCounters(state);
+    state.activeTab = "nonFollowers";
     state.users = dedupeUsers(scan.users || []);
     state.unverified = Boolean(scan.unverified);
     state.source = scan.source || "api";
@@ -866,6 +1004,242 @@ export function boot() {
         time: timeAgo(scan.savedAt, state.language),
       })
     );
+  }
+
+  async function startActivityScan() {
+    if (state.active.running || state.disposed) return;
+    if (!(state.users || []).some((user) => user && user.handle)) {
+      ui.toast(t()("activityNeedsScan"));
+      return;
+    }
+    if (Date.now() < Number(state.cooldownUntil)) {
+      ui.toast(
+        t()("cooldownIn", { time: formatClock(state.cooldownUntil) })
+      );
+      return;
+    }
+    const session = ensureSession();
+    if (!session) return;
+
+    const candidates = state.users.filter((user) => {
+      if (!user || !user.handle) return false;
+      const entry = activityEntryFor(state.activityEntries, user);
+      if (entry?.reason === "template") return true;
+      return !isActivityFresh(entry);
+    });
+    if (!candidates.length) {
+      state.activeTab = "inactive";
+      state.mode = "results";
+      state.activityScan = null;
+      clearActivityScan(undefined);
+      hydrateActivityCounters(state);
+      ui.render();
+      ui.toast(t()("activityFresh"));
+      return;
+    }
+
+    state.activeTab = "inactive";
+    state.mode = "results";
+    state.error = "";
+    state.paused = false;
+    state.cooldownUntil = 0;
+    state.scanPauseUntil = 0;
+    state.activity = {
+      ...idleActivity(),
+      status: "scanning",
+      total: candidates.length,
+      source: "lookup",
+      startedAt: Date.now(),
+    };
+    state.activityScan = {
+      viewerHandle: state.viewer.handle,
+      startedAt: Date.now(),
+      checked: 0,
+      total: candidates.length,
+      complete: false,
+      stopped: null,
+    };
+    saveActivityScan(undefined, state.activityScan);
+    state.active = {
+      running: true,
+      paused: false,
+      cancelled: false,
+      abort: new AbortController(),
+      wake: null,
+    };
+    activityCacheWarned = false;
+    ui.render();
+
+    const onResult = (user, entry) => {
+      if (state.disposed) return;
+      const key = String(entry.id || user.handle.toLowerCase());
+      const handleKey = String(user.handle || "").toLowerCase();
+      if (entry.id && state.activityEntries[handleKey]) {
+        delete state.activityEntries[handleKey];
+      }
+      state.activityEntries[key] = entry;
+      if (!user.id && entry.id) user.id = entry.id;
+      state.activity.checked = (Number(state.activity.checked) || 0) + 1;
+      state.activity.current = user.handle;
+      state.activity.source = entry.source || state.activity.source;
+      if (entry.state === "unknown") {
+        state.activity.unknown = (Number(state.activity.unknown) || 0) + 1;
+      } else if (classifyActivity(entry, state.activityDays) === "inactive") {
+        state.activity.inactive = (Number(state.activity.inactive) || 0) + 1;
+      }
+      scheduleActivityUi();
+    };
+
+    const onProgress = (event) => {
+      if (state.disposed) return;
+      if (event.kind === "delay") {
+        state.activity.nextAt = Date.now() + Number(event.ms || 0);
+        scheduleActivityUi();
+        return;
+      }
+      if (event.kind === "pause") {
+        state.scanPauseUntil = Date.now() + Number(event.ms || 0);
+        scheduleActivityUi();
+        return;
+      }
+      if (event.kind === "paused") {
+        if (state.activity.status !== "paused") {
+          state.activity.status = "paused";
+          scheduleActivityUi(true);
+        }
+        return;
+      }
+      if (event.kind === "fallback") {
+        state.activity.source = "graphql";
+        ui.toast(t()("activityFallback"));
+        scheduleActivityUi(true);
+        return;
+      }
+      if (event.kind === "template-broken") {
+        ui.toast(t()("activityGraphqlHint"));
+        return;
+      }
+      if (event.kind === "checkpoint") {
+        persistActivity();
+        scheduleActivityUi(true);
+        return;
+      }
+      if (event.kind === "result") {
+        state.activity.source = event.source || state.activity.source;
+        scheduleActivityUi();
+      }
+    };
+
+    try {
+      const result = await runActivityScan({
+        users: candidates,
+        cache: state.activityEntries,
+        days: state.activityDays,
+        csrf: session.csrf,
+        origin: session.origin,
+        template: getCapturedActivity(),
+        fetchImpl: globalThis.fetch,
+        sleepFn: (ms) => activeSleep(ms),
+        random: Math.random,
+        timings: state.timings,
+        onResult,
+        onProgress,
+        shouldPause: () => state.active.paused,
+        shouldCancel: () => state.active.cancelled,
+        signal: state.active.abort.signal,
+      });
+      if (state.disposed) return;
+      const entries = Object.values(state.activityEntries || {}).filter(
+        (entry) => isActivityFresh(entry)
+      );
+      const templateStopped = result.stopped === "template";
+      state.activity.status = templateStopped ? "error" : "done";
+      state.activity.nextAt = 0;
+      state.scanPauseUntil = 0;
+      state.activity.checked = entries.length;
+      state.activity.total = entries.length;
+      state.activity.inactive = entries.filter(
+        (entry) => classifyActivity(entry, state.activityDays) === "inactive"
+      ).length;
+      state.activity.unknown = entries.filter(
+        (entry) => entry.state === "unknown"
+      ).length;
+      state.activity.source = result.source || state.activity.source;
+      if (templateStopped) {
+        state.activity.error = t()("activityGraphqlHint");
+        if (state.activityScan) {
+          state.activityScan.checked = state.activity.checked;
+          state.activityScan.stopped = "template";
+        }
+      } else {
+        state.activityScan = null;
+        clearActivityScan(undefined);
+      }
+      persistActivity();
+      state.active.running = false;
+      state.active.paused = false;
+      state.active.wake = null;
+      state.paused = false;
+      ui.render();
+      if (!templateStopped) {
+        ui.toast(
+          t()("activityDoneToast", { count: state.activity.inactive })
+        );
+      }
+    } catch (error) {
+      if (state.disposed) return;
+      state.active.running = false;
+      state.active.paused = false;
+      state.active.wake = null;
+      state.paused = false;
+      state.activity.nextAt = 0;
+      state.scanPauseUntil = 0;
+      const aborted =
+        state.active.cancelled || error?.kind === "aborted";
+      if (aborted) {
+        state.activity.status = "idle";
+        state.activity.error = "";
+        if (state.activityScan) state.activityScan.stopped = "cancel";
+      } else {
+        state.activity.status = "error";
+        if (error?.kind === "rate") {
+          state.cooldownUntil =
+            Number(error.resetAt) ||
+            Date.now() + Number(error.retryAfter || COOLDOWN_MS.rate);
+          state.activity.error = t()("tooManyRequests", {
+            time: formatClock(state.cooldownUntil),
+          });
+        } else if (error?.kind === "auth") {
+          state.activity.error = t()("sessionExpired");
+        } else if (error?.kind === "blocked") {
+          state.activity.error = t()("scanBlocked");
+        } else if (error?.kind === "network") {
+          state.activity.error = t()("networkError");
+        } else {
+          state.activity.error = t()("unknownError");
+        }
+        if (state.activityScan) {
+          state.activityScan.stopped = error?.kind || "error";
+        }
+      }
+      persistActivity();
+      if (!aborted && state.activityScan) {
+        saveActivityScan(undefined, state.activityScan);
+      }
+      ui.render();
+    }
+  }
+
+  function clearActivityData() {
+    if (state.active.running) return;
+    state.activityEntries = {};
+    state.activityScan = null;
+    state.activity = idleActivity();
+    state.selected = new Set();
+    clearActivityStore(undefined);
+    clearActivityScan(undefined);
+    ui.render();
+    ui.toast(t()("activityCleared"));
   }
 
   async function startUnfollow() {
@@ -1067,7 +1441,15 @@ export function boot() {
       return;
     }
     if (action === "save-settings") {
-      state.timings = normalizeTimings(payload || state.timings);
+      const { activityDays, ...timingPayload } = payload || {};
+      state.timings = normalizeTimings(
+        Object.keys(timingPayload).length ? timingPayload : state.timings
+      );
+      state.activityDays = clamp(
+        Number(activityDays) || state.activityDays,
+        ACTIVITY_MIN_DAYS,
+        ACTIVITY_MAX_DAYS
+      );
       persist(state);
       ui.toast(t()("settingsSaved"));
       return;
@@ -1104,6 +1486,39 @@ export function boot() {
     }
     if (action === "cancel-scan") {
       cancelScan();
+      return;
+    }
+    if (action === "start-activity") {
+      startActivityScan();
+      return;
+    }
+    if (action === "pause-activity") {
+      if (state.active.running) {
+        state.active.paused = true;
+        state.paused = true;
+        state.activity.status = "paused";
+        state.activity.nextAt = 0;
+        ui.update();
+      }
+      return;
+    }
+    if (action === "resume-activity") {
+      state.active.paused = false;
+      state.paused = false;
+      state.activity.status = "scanning";
+      ui.update();
+      return;
+    }
+    if (action === "cancel-activity") {
+      state.active.cancelled = true;
+      state.active.paused = false;
+      state.active.wake?.();
+      state.active.abort?.abort();
+      ui.toast(t()("cancel"));
+      return;
+    }
+    if (action === "clear-activity") {
+      clearActivityData();
       return;
     }
     if (action === "start-unfollow") {
@@ -1184,6 +1599,8 @@ export function boot() {
     state.active.wake?.();
     state.active.abort?.abort();
     clearTimeout(pauseTimer);
+    clearTimeout(activityUiTimer);
+    activityUiTimer = null;
     document.removeEventListener("visibilitychange", onVisibility);
     uninstallCapture();
     appearance.stop();

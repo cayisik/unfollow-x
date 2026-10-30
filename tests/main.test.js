@@ -5,6 +5,7 @@ import {
   mergeScan,
   canUnfollow,
   coverageFrom,
+  createState,
   boot,
 } from "../src/main.js";
 import { getCapturedFollowing } from "../src/capture.js";
@@ -474,6 +475,268 @@ test("unfollow keeps one panel through results, pause, and heartbeat", async () 
     } else {
       delete globalThis.localStorage;
     }
+    globalThis.fetch = originalFetch;
+    dom.window.close();
+  }
+});
+
+test("createState includes activity defaults", () => {
+  const state = createState();
+  assert.equal(state.activeTab, "nonFollowers");
+  assert.equal(state.activityDays, 30);
+  assert.deepEqual(state.activityEntries, {});
+  assert.equal(state.activity.status, "idle");
+});
+
+test("boot loads fresh activity cache for the viewer", () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    dom.window.localStorage.setItem(
+      "ux_state_v1",
+      JSON.stringify({ activityDays: 45 })
+    );
+    dom.window.localStorage.setItem(
+      "ux_activity_v1",
+      JSON.stringify({
+        version: 1,
+        viewerHandle: "me",
+        savedAt: Date.now(),
+        entries: {
+          "1": {
+            id: "1",
+            handle: "alice",
+            state: "known",
+            lastTweetAt: 0,
+            checkedAt: Date.now(),
+            source: "lookup",
+          },
+        },
+      })
+    );
+    state = boot();
+    assert.equal(state.activityDays, 45);
+    assert.equal(state.activityEntries["1"].handle, "alice");
+    assert.equal(state.activity.status, "done");
+    assert.equal(state.activity.inactive, 1);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
+
+test("activity scan from the inactive tab fills the cache and renders results", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  dom.window.document.cookie = "ct0=test; path=/";
+  const originalFetch = globalThis.fetch;
+  const oldDate = new Date(Date.now() - 40 * 86400000).toUTCString();
+  const recentDate = new Date(Date.now() - 86400000).toUTCString();
+  const fakeFetch = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.endsWith("/users/lookup.json")) {
+      const ids = (parsed.searchParams.get("user_id") || "")
+        .split(",")
+        .filter(Boolean);
+      return new Response(
+        JSON.stringify(
+          ids.map((id) => ({
+            id_str: id,
+            screen_name: id === "1" ? "alice" : id === "2" ? "bob" : "carol",
+            statuses_count: id === "3" ? 0 : 1,
+            status:
+              id === "3"
+                ? undefined
+                : {
+                    created_at: id === "1" ? recentDate : oldDate,
+                  },
+          }))
+        ),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    return new Response("{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+    fetch: globalThis.fetch,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    set("fetch", fakeFetch);
+    state = boot();
+    state.users = [
+      { id: "1", handle: "alice", name: "Alice", followsViewer: false },
+      { id: "2", handle: "bob", name: "Bob", followsViewer: false },
+      { id: "3", handle: "carol", name: "Carol", followsViewer: true },
+    ];
+    state.mode = "results";
+    state.unverified = false;
+    state.partial = false;
+    state.timings = {
+      ...state.timings,
+      scanDelayMin: 0,
+      scanDelayMax: 0,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    };
+    state.ui.render();
+    dom.window.document.querySelector('[data-tab="inactive"]').click();
+    dom.window.document.querySelector('[data-action="start-activity"]').click();
+    await new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (state.activity.status === "done" || Date.now() - started > 3000) {
+          return resolve();
+        }
+        setTimeout(tick, 25);
+      };
+      tick();
+    });
+    assert.equal(state.activity.status, "done");
+    assert.equal(Object.keys(state.activityEntries).length, 3);
+    assert.equal(state.activityEntries["2"].state, "known");
+    assert.equal(state.activityEntries["3"].lastTweetAt, 0);
+    assert.match(
+      dom.window.document.querySelector('[data-view="results"]').textContent,
+      /Bob/
+    );
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    globalThis.fetch = originalFetch;
+    dom.window.close();
+  }
+});
+
+test("activity scan keeps template-broken results as a retryable error", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  dom.window.document.cookie = "ct0=test; path=/";
+  const originalFetch = globalThis.fetch;
+  const fakeFetch = async (url) => {
+    if (String(url).includes("users/lookup")) {
+      return new Response(
+        JSON.stringify({ errors: [{ message: "Not Found" }] }),
+        { status: 404, headers: { "content-type": "application/json" } }
+      );
+    }
+    return new Response(
+      JSON.stringify({ errors: [{ message: "Unknown queryId" }] }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+    fetch: globalThis.fetch,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    set("fetch", fakeFetch);
+    state = boot();
+    state.users = [
+      { id: "1", handle: "alice", name: "Alice", followsViewer: false },
+      { id: "2", handle: "bob", name: "Bob", followsViewer: false },
+    ];
+    state.mode = "results";
+    state.unverified = false;
+    state.partial = false;
+    state.timings = {
+      ...state.timings,
+      scanDelayMin: 0,
+      scanDelayMax: 0,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    };
+    state.ui.render();
+    dom.window.document.querySelector('[data-tab="inactive"]').click();
+    dom.window.document.querySelector('[data-action="start-activity"]').click();
+    await new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (state.activity.status === "error" || Date.now() - started > 3000) {
+          return resolve();
+        }
+        setTimeout(tick, 25);
+      };
+      tick();
+    });
+    assert.equal(state.activity.status, "error");
+    assert.match(state.activity.error, /Replies/);
+    assert.equal(state.activityEntries["1"].reason, "template");
+    assert.equal(state.activityEntries["2"].reason, "template");
+    assert.equal(state.activityScan.stopped, "template");
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
     globalThis.fetch = originalFetch;
     dom.window.close();
   }
