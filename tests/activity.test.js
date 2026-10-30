@@ -16,13 +16,47 @@ const fixture = (name) =>
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse("Fri Oct 30 12:00:00 +0000 2026");
 
+const tweet = (id, authorId, createdAt, legacy = {}) => ({
+  __typename: "Tweet",
+  rest_id: id,
+  core: { user_results: { result: { rest_id: authorId } } },
+  legacy: { created_at: createdAt, ...legacy },
+});
+
+const tweetEntry = (entryId, result) => ({
+  entryId,
+  content: { itemContent: { tweet_results: { result } } },
+});
+
+const timelinePage = (instructions) => ({
+  data: {
+    user: {
+      result: {
+        __typename: "User",
+        rest_id: "1",
+        timeline_v2: { timeline: { instructions } },
+      },
+    },
+  },
+});
+
+const entriesInstruction = (entries) => [
+  { type: "TimelineAddEntries", entries },
+];
+
 test("parseTwitterDate accepts the X date format", () => {
   assert.equal(
     parseTwitterDate("Thu Oct 29 10:00:00 +0000 2026"),
-    Date.parse("Thu Oct 29 10:00:00 +0000 2026")
+    1793268000000
   );
   assert.equal(parseTwitterDate("not a date"), null);
   assert.equal(parseTwitterDate(""), null);
+});
+
+test("parseTwitterDate accepts numeric seconds and milliseconds", () => {
+  assert.equal(parseTwitterDate(1793268000), 1793268000000);
+  assert.equal(parseTwitterDate("1793268000"), 1793268000000);
+  assert.equal(parseTwitterDate(1793268000000), 1793268000000);
 });
 
 test("classifyActivity uses a strict window boundary", () => {
@@ -37,6 +71,15 @@ test("classifyActivity uses a strict window boundary", () => {
   );
   assert.equal(classifyActivity({ state: "unknown" }, 30, NOW), "unknown");
   assert.equal(classifyActivity(null, 30, NOW), "unknown");
+});
+
+test("classifyActivity treats missing timestamps as unknown", () => {
+  assert.equal(classifyActivity({ state: "known", lastTweetAt: null }, 30, NOW), "unknown");
+  assert.equal(
+    classifyActivity({ state: "known", lastTweetAt: undefined }, 30, NOW),
+    "unknown"
+  );
+  assert.equal(classifyActivity({ state: "known", lastTweetAt: "" }, 30, NOW), "unknown");
 });
 
 test("isActivityFresh expires after 24 hours", () => {
@@ -55,17 +98,29 @@ test("activityEntryFor prefers id and falls back to handle", () => {
   assert.equal(activityEntryFor(entries, { handle: "nobody" }), null);
 });
 
+test("activityEntryFor ignores inherited properties", () => {
+  assert.equal(activityEntryFor({}, { id: "constructor" }), null);
+  assert.equal(activityEntryFor({}, { handle: "toString" }), null);
+});
+
 test("parseLookupUsers normalizes known, never, and fallback records", () => {
   const parsed = parseLookupUsers(fixture("lookup.json"));
   assert.equal(parsed.byId.get("1").state, "known");
-  assert.equal(
-    parsed.byId.get("1").lastTweetAt,
-    Date.parse("Thu Oct 29 10:00:00 +0000 2026")
-  );
+  assert.equal(parsed.byId.get("1").lastTweetAt, 1793268000000);
   assert.equal(parsed.byId.get("2").state, "known");
   assert.equal(parsed.byId.get("2").lastTweetAt, 0);
   assert.equal(parsed.byId.get("3").state, "fallback");
   assert.equal(parsed.byHandle.get("carol").state, "fallback");
+});
+
+test("parseLookupUsers treats nullable counts as fallback", () => {
+  for (const statusesCount of [null, undefined, ""]) {
+    const parsed = parseLookupUsers([
+      { id_str: "9", screen_name: "dave", statuses_count: statusesCount },
+    ]);
+    assert.equal(parsed.byId.get("9").state, "fallback");
+    assert.equal(parsed.byId.get("9").lastTweetAt, null);
+  }
 });
 
 test("parseLookupUsers accepts the users wrapper", () => {
@@ -76,16 +131,115 @@ test("parseLookupUsers accepts the users wrapper", () => {
 test("parseUserTweetsPage finds the newest relevant post", () => {
   const parsed = parseUserTweetsPage(fixture("user-tweets.json"), "1");
   assert.equal(parsed.state, "known");
-  assert.equal(
-    parsed.lastTweetAt,
-    Date.parse("Thu Oct 30 09:00:00 +0000 2026")
-  );
+  assert.equal(parsed.lastTweetAt, 1793350800000);
 });
 
 test("parseUserTweetsPage returns zero for an empty timeline", () => {
   const parsed = parseUserTweetsPage(fixture("user-tweets-empty.json"), "2");
   assert.equal(parsed.state, "known");
   assert.equal(parsed.lastTweetAt, 0);
+});
+
+test("parseUserTweetsPage reads pinned entries", () => {
+  const json = timelinePage([
+    {
+      type: "TimelinePinEntry",
+      entry: tweetEntry(
+        "profile-grid-0-tweet-300",
+        tweet("300", "1", "Tue Oct 27 08:00:00 +0000 2026")
+      ),
+    },
+  ]);
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "known");
+  assert.equal(parsed.lastTweetAt, 1793088000000);
+});
+
+test("parseUserTweetsPage reads module items", () => {
+  const json = timelinePage([
+    {
+      type: "TimelineAddToModule",
+      moduleItems: [
+        {
+          entryId: "module-0",
+          item: {
+            itemContent: {
+              tweet_results: {
+                result: tweet("301", "1", "Tue Oct 27 08:00:00 +0000 2026"),
+              },
+            },
+          },
+        },
+      ],
+    },
+  ]);
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "known");
+  assert.equal(parsed.lastTweetAt, 1793088000000);
+});
+
+test("parseUserTweetsPage unwraps TweetWithVisibilityResults", () => {
+  const json = timelinePage(
+    entriesInstruction([
+      tweetEntry("tweet-1", {
+        __typename: "TweetWithVisibilityResults",
+        tweet: tweet("302", "1", "Tue Oct 27 08:00:00 +0000 2026"),
+      }),
+    ])
+  );
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "known");
+  assert.equal(parsed.lastTweetAt, 1793088000000);
+});
+
+test("parseUserTweetsPage rejects non-cursor entries without tweets", () => {
+  const json = timelinePage(
+    entriesInstruction([
+      {
+        entryId: "who-to-follow-0",
+        content: { itemContent: { __typename: "TimelineUser" } },
+      },
+    ])
+  );
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "unknown");
+  assert.equal(parsed.reason, "parse");
+});
+
+test("parseUserTweetsPage treats cursor-only pages as empty", () => {
+  const json = timelinePage(
+    entriesInstruction([
+      {
+        entryId: "cursor-bottom-1",
+        content: {
+          entryType: "TimelineTimelineCursor",
+          cursorType: "Bottom",
+          value: "abc",
+        },
+      },
+    ])
+  );
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "known");
+  assert.equal(parsed.lastTweetAt, 0);
+});
+
+test("parseUserTweetsPage ignores foreign-author non-retweets", () => {
+  const json = timelinePage(
+    entriesInstruction([
+      tweetEntry(
+        "tweet-1",
+        tweet("200", "999", "Thu Oct 30 11:00:00 +0000 2026")
+      ),
+      tweetEntry(
+        "tweet-2",
+        tweet("201", "1", "Wed Oct 28 10:00:00 +0000 2026")
+      ),
+    ])
+  );
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "known");
+  assert.equal(parsed.lastTweetAt, 1793181600000);
 });
 
 test("parseUserTweetsPage marks unavailable users unknown", () => {
@@ -97,6 +251,25 @@ test("parseUserTweetsPage marks unavailable users unknown", () => {
   assert.equal(parsed.reason, "unavailable");
 });
 
+test("parseUserTweetsPage keeps protected-account errors non-fatal", () => {
+  const parsed = parseUserTweetsPage(
+    { errors: [{ message: "You're not authorized to view this user's Tweets." }] },
+    "1"
+  );
+  assert.equal(parsed.state, "unknown");
+  assert.equal(parsed.reason, "unavailable");
+  assert.equal(parsed.fatalKind, undefined);
+});
+
+test("parseUserTweetsPage classifies authentication failures", () => {
+  const parsed = parseUserTweetsPage(
+    { errors: [{ message: "Could not authenticate you." }] },
+    "1"
+  );
+  assert.equal(parsed.state, "unknown");
+  assert.equal(parsed.fatalKind, "auth");
+});
+
 test("parseUserTweetsPage surfaces GraphQL rate limits", () => {
   const parsed = parseUserTweetsPage(
     { errors: [{ message: "Rate limit exceeded" }] },
@@ -104,4 +277,45 @@ test("parseUserTweetsPage surfaces GraphQL rate limits", () => {
   );
   assert.equal(parsed.state, "unknown");
   assert.equal(parsed.fatalKind, "rate");
+});
+
+test("parseUserTweetsPage preserves unknown GraphQL errors", () => {
+  const parsed = parseUserTweetsPage(
+    { errors: [{ message: "Something went wrong" }] },
+    "1"
+  );
+  assert.equal(parsed.state, "unknown");
+  assert.equal(parsed.reason, "Something went wrong");
+  assert.equal(parsed.fatalKind, undefined);
+});
+
+test("parseUserTweetsPage flags template errors", () => {
+  const parsed = parseUserTweetsPage(
+    { errors: [{ message: "Unknown queryId" }] },
+    "1"
+  );
+  assert.equal(parsed.state, "unknown");
+  assert.equal(parsed.reason, "Unknown queryId");
+  assert.equal(parsed.fatalKind, "template");
+});
+
+test("parseUserTweetsPage parses data alongside non-fatal errors", () => {
+  const json = fixture("user-tweets.json");
+  json.errors = [{ message: "Something went wrong" }];
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "known");
+  assert.equal(parsed.lastTweetAt, 1793350800000);
+});
+
+test("parseUserTweetsPage does not over-match generic retry or spam text", () => {
+  const retry = parseUserTweetsPage(
+    { errors: [{ message: "Please try again later" }] },
+    "1"
+  );
+  assert.equal(retry.fatalKind, undefined);
+  const spam = parseUserTweetsPage(
+    { errors: [{ message: "Spam is not allowed" }] },
+    "1"
+  );
+  assert.equal(spam.fatalKind, undefined);
 });

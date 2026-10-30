@@ -2,6 +2,8 @@ import {
   ACTIVITY_BATCH_SIZE,
   ACTIVITY_DEFAULT_DAYS,
   ACTIVITY_FEATURES,
+  ACTIVITY_MAX_DAYS,
+  ACTIVITY_MIN_DAYS,
   ACTIVITY_QUERY_ID,
   ACTIVITY_TTL,
   BEARER,
@@ -32,10 +34,16 @@ export function parseTwitterDate(value) {
 
 export function classifyActivity(entry, days = ACTIVITY_DEFAULT_DAYS, now = Date.now()) {
   if (!entry || entry.state !== "known") return "unknown";
-  const stamp = Number(entry.lastTweetAt);
+  const raw = entry.lastTweetAt;
+  if (raw === null || raw === undefined || raw === "") return "unknown";
+  const stamp = Number(raw);
   if (!Number.isFinite(stamp) || stamp < 0) return "unknown";
   if (stamp === 0) return "inactive";
-  const windowDays = clamp(Number(days) || ACTIVITY_DEFAULT_DAYS, 1, 365);
+  const windowDays = clamp(
+    Number(days) || ACTIVITY_DEFAULT_DAYS,
+    ACTIVITY_MIN_DAYS,
+    ACTIVITY_MAX_DAYS
+  );
   return stamp <= now - windowDays * DAY ? "inactive" : "active";
 }
 
@@ -49,9 +57,12 @@ export function isActivityFresh(entry, now = Date.now()) {
 }
 
 export function activityEntryFor(entries, user) {
+  const store = entries && typeof entries === "object" ? entries : {};
   const id = String(user?.id || "");
   const handle = String(user?.handle || "").toLowerCase();
-  return (id && entries?.[id]) || (handle && entries?.[handle]) || null;
+  if (id && Object.hasOwn(store, id)) return store[id];
+  if (handle && Object.hasOwn(store, handle)) return store[handle];
+  return null;
 }
 
 function normalizeLookupItem(raw) {
@@ -60,8 +71,12 @@ function normalizeLookupItem(raw) {
     .replace(/^@/, "")
     .trim();
   if (!id && !handle) return null;
-  const statusesCount = Number(raw?.statuses_count);
-  const count = Number.isFinite(statusesCount) ? statusesCount : null;
+  const rawCount = raw?.statuses_count;
+  const parsedCount =
+    rawCount === null || rawCount === undefined || rawCount === ""
+      ? null
+      : Number(rawCount);
+  const count = Number.isFinite(parsedCount) ? parsedCount : null;
   const createdAt = raw?.status?.created_at;
   let state = "fallback";
   let lastTweetAt = null;
@@ -117,9 +132,24 @@ function findInstructions(node, depth = 0) {
 
 function collectEntries(node, out, depth = 0) {
   if (!node || typeof node !== "object" || depth > 30) return;
+  if (node.entry && typeof node.entry === "object") out.push(node.entry);
   if (Array.isArray(node.entries)) out.push(...node.entries);
   if (Array.isArray(node.items)) out.push(...node.items);
+  if (Array.isArray(node.moduleItems)) out.push(...node.moduleItems);
   for (const value of Object.values(node)) collectEntries(value, out, depth + 1);
+}
+
+function isCursorEntry(entry) {
+  const content = entry?.content || entry?.item?.itemContent || entry?.itemContent || {};
+  const contentType = content?.__typename || content?.entryType || "";
+  return (
+    Boolean(content?.cursorType) ||
+    contentType === "TimelineTimelineCursor" ||
+    content?.itemContent?.__typename === "TimelineTimelineCursor" ||
+    String(entry?.entryId || "")
+      .toLowerCase()
+      .includes("cursor")
+  );
 }
 
 function tweetResultOf(entry) {
@@ -148,21 +178,33 @@ function tweetTimestamp(result, userId) {
 
 export function parseUserTweetsPage(json, userId = "") {
   const message = String(json?.errors?.[0]?.message || "");
-  if (/rate limit|too many requests|try again later/i.test(message)) {
+  if (/rate limit|too many requests/i.test(message)) {
     return { state: "unknown", reason: message, fatalKind: "rate" };
-  }
-  if (/could not authenticate|unauthorized|not authorized|require_login/i.test(message)) {
-    return { state: "unknown", reason: message, fatalKind: "auth" };
-  }
-  if (/blocked|forbidden|challenge|spam/i.test(message)) {
-    return { state: "unknown", reason: message, fatalKind: "blocked" };
   }
   if (/could not find user|user not found|suspended|not authorized to view/i.test(message)) {
     return { state: "unknown", reason: "unavailable" };
   }
+  if (/could not authenticate|unauthorized|require_login|authentication/i.test(message)) {
+    return { state: "unknown", reason: message, fatalKind: "auth" };
+  }
+  if (/blocked|forbidden|challenge/i.test(message)) {
+    return { state: "unknown", reason: message, fatalKind: "blocked" };
+  }
 
   const root = json?.data?.user?.result || json?.data?.user;
-  if (!root) return { state: "unknown", reason: "not-found" };
+  if (!root) {
+    if (message) {
+      if (
+        /query|queryid|variable|invalid|bad request|unsupported|operation/i.test(
+          message
+        )
+      ) {
+        return { state: "unknown", reason: message, fatalKind: "template" };
+      }
+      return { state: "unknown", reason: message };
+    }
+    return { state: "unknown", reason: "not-found" };
+  }
   if (root.__typename === "UserUnavailable") {
     return { state: "unknown", reason: "unavailable" };
   }
@@ -172,15 +214,26 @@ export function parseUserTweetsPage(json, userId = "") {
 
   const entries = [];
   collectEntries(instructions, entries);
+  let recognized = 0;
   let relevant = 0;
   let lastTweetAt = 0;
+  let nonCursor = 0;
   for (const entry of entries) {
+    if (isCursorEntry(entry)) continue;
+    nonCursor += 1;
     const result = tweetResultOf(entry);
     if (!result) continue;
+    recognized += 1;
     const info = tweetTimestamp(result, userId);
     if (!info.relevant) continue;
     relevant += 1;
     if (info.at !== null && info.at > lastTweetAt) lastTweetAt = info.at;
+  }
+  if (recognized === 0 && nonCursor > 0) {
+    return { state: "unknown", reason: "parse" };
+  }
+  if (recognized > 0 && relevant === 0) {
+    return { state: "unknown", reason: "parse" };
   }
   if (relevant > 0 && lastTweetAt === 0) {
     return { state: "unknown", reason: "parse" };

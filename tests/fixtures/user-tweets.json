@@ -63,13 +63,20 @@
                             "rest_id": "102",
                             "core": {
                               "user_results": {
-                                "result": { "rest_id": "999" }
+                                "result": { "rest_id": "1" }
                               }
                             },
                             "legacy": {
                               "created_at": "Thu Oct 30 09:00:00 +0000 2026",
                               "retweeted_status_result": {
-                                "result": { "rest_id": "50" }
+                                "result": {
+                                  "rest_id": "50",
+                                  "core": {
+                                    "user_results": {
+                                      "result": { "rest_id": "999" }
+                                    }
+                                  }
+                                }
                               }
                             }
                           }
