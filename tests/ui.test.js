@@ -83,6 +83,22 @@ function state() {
     unfollow: { current: null, total: 0, ok: 0, fail: 0, nextAt: 0 },
     cooldownUntil: 0,
     scanPauseUntil: 0,
+    activeTab: "nonFollowers",
+    activityDays: 30,
+    activityEntries: {},
+    activityScan: null,
+    activity: {
+      status: "idle",
+      checked: 0,
+      total: 0,
+      inactive: 0,
+      unknown: 0,
+      current: "",
+      source: "lookup",
+      error: "",
+      nextAt: 0,
+      startedAt: 0,
+    },
   };
 }
 
@@ -417,4 +433,107 @@ test("settings group titles are localized", () => {
 test("user metadata styles do not stretch inline badges", () => {
   assert.match(CSS, /\.ux-user > span/);
   assert.doesNotMatch(CSS, /\.ux-user span\s*\{/);
+});
+
+import {
+  getActivityEntry,
+  getUnknownActivityUsers,
+  activityStatus,
+} from "../src/ui.js";
+
+test("inactive tab lists only inactive users, never-posted first", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+    "2": {
+      id: "2",
+      handle: "bob",
+      state: "known",
+      lastTweetAt: Date.now() - 40 * 86400000,
+      checkedAt: Date.now(),
+    },
+    "3": {
+      id: "3",
+      handle: "carol",
+      state: "unknown",
+      reason: "not-found",
+      checkedAt: Date.now(),
+    },
+  };
+  assert.deepEqual(
+    getDisplayUsers(s).map((user) => user.handle),
+    ["alice", "bob"]
+  );
+  assert.deepEqual(
+    getUnknownActivityUsers(s).map((user) => user.handle),
+    ["carol"]
+  );
+  assert.equal(activityStatus(s, s.users[0]), "inactive");
+  assert.equal(getActivityEntry(s, s.users[0]).lastTweetAt, 0);
+});
+
+test("results view renders tabs and the activity intro", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  const html = renderResultsView(s);
+  assert.match(html, /data-tab="nonFollowers"/);
+  assert.match(html, /data-tab="inactive"/);
+  assert.match(html, /data-action="start-activity"/);
+  assert.match(html, /Activity audit/);
+});
+
+test("activity rows show last post notes and unknown section", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+    "2": {
+      id: "2",
+      handle: "bob",
+      state: "known",
+      lastTweetAt: Date.now() - 40 * 86400000,
+      checkedAt: Date.now(),
+    },
+    "3": {
+      id: "3",
+      handle: "carol",
+      state: "unknown",
+      reason: "not-found",
+      checkedAt: Date.now(),
+    },
+  };
+  const html = renderResultsView(s);
+  assert.match(html, /No posts yet/);
+  assert.match(html, /Last post:/);
+  assert.match(html, /could not be checked/);
+  assert.doesNotMatch(html, /data-select="3"/);
+});
+
+test("passive pill shows the inactive count", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  s.mode = "results";
+  assert.match(pillLabel(s), /inactive/);
 });

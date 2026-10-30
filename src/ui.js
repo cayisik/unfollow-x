@@ -6,6 +6,7 @@ import {
   DEFAULT_FILTERS,
   PANEL,
   VERSION,
+  ACTIVITY_DEFAULT_DAYS,
   makeT,
 } from "./config.js";
 import {
@@ -16,6 +17,11 @@ import {
   formatClock,
   timeAgo,
 } from "./utils.js";
+import {
+  classifyActivity,
+  activityEntryFor,
+  isActivityFresh,
+} from "./activity.js";
 
 const LOCK = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>`;
 
@@ -313,6 +319,33 @@ export const CSS = `
 #${APP_ID} .ux-row:hover .ux-row-actions { opacity: 1; }
 #${APP_ID} .ux-row-actions .ux-icon-btn { width: 24px; height: 24px; }
 #${APP_ID} .ux-row-actions svg { width: 13px; height: 13px; }
+#${APP_ID} .ux-tabs {
+  display: flex; gap: 4px; margin: 0 0 14px;
+  border-bottom: 1px solid var(--ux-line-soft);
+}
+#${APP_ID} .ux-tab {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--ux-muted); font: inherit; font-size: 11px; padding: 8px 4px;
+  cursor: pointer;
+}
+#${APP_ID} .ux-tab.is-active { color: var(--ux-text); border-bottom-color: var(--ux-text); }
+#${APP_ID} .ux-tab-count { font-size: 10px; color: var(--ux-muted); }
+#${APP_ID} .ux-tab.is-active .ux-tab-count { color: var(--ux-text); }
+#${APP_ID} .ux-row-note { color: var(--ux-muted); font-size: 10px; white-space: nowrap; }
+#${APP_ID} .ux-row-spacer { width: 13px; }
+#${APP_ID} .ux-row-muted { opacity: .78; }
+#${APP_ID} .ux-unknown {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--ux-line-soft);
+}
+#${APP_ID} .ux-unknown summary {
+  cursor: pointer; color: var(--ux-muted); font-size: 10.5px;
+}
+#${APP_ID} .ux-activity-intro { padding: 14px 0; }
+#${APP_ID} .ux-activity-intro p {
+  color: var(--ux-muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 12px;
+}
+#${APP_ID} .ux-card-actions { display: flex; gap: 6px; margin-top: 10px; }
 #${APP_ID} .ux-empty { padding: 22px 10px; text-align: center; color: var(--ux-muted); font-size: 11.5px; line-height: 1.5; }
 #${APP_ID} .ux-empty strong { display: block; color: var(--ux-text); font-size: 12px; margin-bottom: 4px; }
 #${APP_ID} .ux-actionbar {
@@ -436,19 +469,20 @@ export function keyOf(user) {
   return String(user?.id || String(user?.handle || "").toLowerCase());
 }
 
-function hiddenKeys(user) {
-  return [
-    keyOf(user),
-    String(user?.id || ""),
-    String(user?.handle || "").toLowerCase(),
-  ].filter(Boolean);
+export function getActivityEntry(state, user) {
+  return activityEntryFor(state.activityEntries || {}, user);
 }
 
-function isHidden(user, hidden) {
-  return hiddenKeys(user).some((key) => hidden.has(key));
+export function activityStatus(state, user) {
+  const entry = getActivityEntry(state, user);
+  if (!entry || !isActivityFresh(entry)) return "unchecked";
+  return classifyActivity(
+    entry,
+    state.activityDays ?? ACTIVITY_DEFAULT_DAYS
+  );
 }
 
-export function getDisplayUsers(state) {
+export function getUnknownActivityUsers(state) {
   const filters = { ...DEFAULT_FILTERS, ...(state.filters || {}) };
   const hidden = setOf(state.hidden);
   const search = String(state.search || "")
@@ -457,7 +491,7 @@ export function getDisplayUsers(state) {
     .replace(/^@/, "");
   return (state.users || [])
     .filter((user) => user && user.handle)
-    .filter((user) => user.followsViewer !== true)
+    .filter((user) => activityStatus(state, user) === "unknown")
     .filter((user) => filters.showHidden || !isHidden(user, hidden))
     .filter((user) => filters.verified || !user.verified)
     .filter((user) => filters.protected || !user.protected)
@@ -470,6 +504,56 @@ export function getDisplayUsers(state) {
       );
     })
     .sort((a, b) => a.handle.localeCompare(b.handle));
+}
+
+function hiddenKeys(user) {
+  return [
+    keyOf(user),
+    String(user?.id || ""),
+    String(user?.handle || "").toLowerCase(),
+  ].filter(Boolean);
+}
+
+function isHidden(user, hidden) {
+  return hiddenKeys(user).some((key) => hidden.has(key));
+}
+
+export function getDisplayUsers(
+  state,
+  tab = state.activeTab || "nonFollowers"
+) {
+  const filters = { ...DEFAULT_FILTERS, ...(state.filters || {}) };
+  const hidden = setOf(state.hidden);
+  const search = String(state.search || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, "");
+  const list = (state.users || [])
+    .filter((user) => user && user.handle)
+    .filter((user) => {
+      if (tab === "inactive") return activityStatus(state, user) === "inactive";
+      return user.followsViewer !== true;
+    })
+    .filter((user) => filters.showHidden || !isHidden(user, hidden))
+    .filter((user) => filters.verified || !user.verified)
+    .filter((user) => filters.protected || !user.protected)
+    .filter((user) => filters.noAvatar || !isDefaultAvatar(user))
+    .filter((user) => {
+      if (!search) return true;
+      return (
+        user.handle.toLowerCase().includes(search) ||
+        String(user.name || "").toLowerCase().includes(search)
+      );
+    });
+  return list.sort((a, b) => {
+    if (tab !== "inactive") return a.handle.localeCompare(b.handle);
+    const aEntry = getActivityEntry(state, a);
+    const bEntry = getActivityEntry(state, b);
+    const aStamp = aEntry?.lastTweetAt === 0 ? -1 : Number(aEntry?.lastTweetAt) || 0;
+    const bStamp = bEntry?.lastTweetAt === 0 ? -1 : Number(bEntry?.lastTweetAt) || 0;
+    if (aStamp !== bStamp) return aStamp - bStamp;
+    return a.handle.localeCompare(b.handle);
+  });
 }
 
 export function pruneSelection(state) {
@@ -561,7 +645,7 @@ function badgesHTML(user, t) {
   return badges.length ? `<span class="ux-badges">${badges.join("")}</span>` : "";
 }
 
-export function renderRow(user, state) {
+export function renderRow(user, state, note = "") {
   const t = makeT(state.language);
   const key = keyOf(user);
   const selected = setOf(state.selected).has(key);
@@ -579,7 +663,11 @@ export function renderRow(user, state) {
       <a href="${escapeAttr(profileUrl(user.handle))}" target="_blank" rel="noreferrer noopener"><strong>${escapeHTML(
     user.name || user.handle
   )}</strong></a>
-      <span>@${escapeHTML(user.handle)} ${badgesHTML(user, t)}</span>
+      <span>@${escapeHTML(user.handle)} ${badgesHTML(user, t)}${
+        note
+          ? ` <span class="ux-row-note">${escapeHTML(note)}</span>`
+          : ""
+      }</span>
     </div>
     <div class="ux-row-actions">
       <button class="ux-icon-btn" data-copy="${escapeAttr(
@@ -623,21 +711,350 @@ function renderEmpty(state, t) {
   )}</strong>${escapeHTML(t("selectHint"))}</div>`;
 }
 
+function activityNote(state, user, t) {
+  const entry = getActivityEntry(state, user);
+  if (!entry || entry.state !== "known") return "";
+  if (entry.lastTweetAt === 0) return t("activityNever");
+  return t("activityLastPost", {
+    time: timeAgo(entry.lastTweetAt, state.language),
+  });
+}
+
+function reasonLabel(reason, t) {
+  if (reason === "no-id") return t("activityReasonNoId");
+  if (reason === "not-found") return t("activityReasonNotFound");
+  if (reason === "template") return t("activityReasonTemplate");
+  if (reason === "protected") return t("activityReasonProtected");
+  if (reason === "rate") return t("activityReasonRate");
+  return t("activityReasonUnavailable");
+}
+
+function renderTabs(state, t) {
+  const active = state.activeTab === "inactive" ? "inactive" : "nonFollowers";
+  const nonFollowers = (state.users || []).filter(
+    (user) => user && user.followsViewer !== true
+  ).length;
+  const inactive = (state.users || []).filter(
+    (user) => activityStatus(state, user) === "inactive"
+  ).length;
+  return `<div class="ux-tabs" role="tablist" aria-label="${escapeAttr(
+    t("auditKicker")
+  )}">
+    <button class="ux-tab${active === "nonFollowers" ? " is-active" : ""}" role="tab" aria-selected="${
+    active === "nonFollowers"
+  }" data-action="tab" data-tab="nonFollowers">
+      <span>${escapeHTML(t("tabNonFollowers"))}</span><span class="ux-tab-count">${nonFollowers}</span>
+    </button>
+    <button class="ux-tab${active === "inactive" ? " is-active" : ""}" role="tab" aria-selected="${
+    active === "inactive"
+  }" data-action="tab" data-tab="inactive">
+      <span>${escapeHTML(t("tabInactive"))}</span><span class="ux-tab-count">${inactive}</span>
+    </button>
+  </div>`;
+}
+
+function renderControls(state, t) {
+  const filters = { ...DEFAULT_FILTERS, ...(state.filters || {}) };
+  const hidden = setOf(state.hidden);
+  return `<label class="ux-search">${ICONS.search}<input data-search value="${escapeAttr(
+    state.search || ""
+  )}" placeholder="${escapeAttr(t("search"))}" autocomplete="off" spellcheck="false"></label>
+    <div class="ux-chips">
+      ${chip(t("filterVerified"), "verified", filters.verified)}
+      ${chip(t("filterProtected"), "protected", filters.protected)}
+      ${chip(t("filterNoAvatar"), "noAvatar", filters.noAvatar)}
+      ${chip(
+        filters.showHidden && hidden.size
+          ? t("showHiddenCount", { count: hidden.size })
+          : t("filterShowHidden"),
+        "showHidden",
+        filters.showHidden,
+        hidden.size ? `<span class="ux-chip-count">${hidden.size}</span>` : ""
+      )}
+    </div>`;
+}
+
+function renderActionbar(state, t, { locked = false } = {}) {
+  const users = getDisplayUsers(state);
+  const selected = setOf(state.selected);
+  const selectedCount = users.filter((user) => selected.has(keyOf(user))).length;
+  const allSelected =
+    users.length > 0 && users.every((user) => selected.has(keyOf(user)));
+  const someSelected = users.some((user) => selected.has(keyOf(user)));
+  return `<div class="ux-actionbar" data-actionbar>
+    <label class="ux-check"><input type="checkbox" data-select-all ${
+      allSelected ? "checked" : ""
+    } data-indeterminate="${someSelected && !allSelected ? "1" : "0"}">${escapeHTML(
+      t("selectAll")
+    )}</label>
+    <button class="ux-link" data-action="select-none">${escapeHTML(
+      t("selectNone")
+    )}</button>
+    <span class="ux-spacer"></span>
+    <button class="ux-btn ux-btn-ghost" data-action="copy-all">${escapeHTML(
+      t("copyAll")
+    )}</button>
+    <button class="ux-btn ux-btn-primary" data-action="unfollow" ${
+      selectedCount === 0 || state.unverified || locked ? "disabled" : ""
+    } data-unfollow-label>${escapeHTML(t("unfollow"))}${
+      selectedCount ? ` (${selectedCount})` : ""
+    }</button>
+  </div>`;
+}
+
+function renderUnknownRow(user, state, t) {
+  const entry = getActivityEntry(state, user);
+  const reason = reasonLabel(entry?.reason, t);
+  return `<div class="ux-row ux-row-muted">
+    <span class="ux-row-spacer" aria-hidden="true"></span>
+    <a href="${escapeAttr(profileUrl(user.handle))}" target="_blank" rel="noreferrer noopener" aria-label="${escapeAttr(
+      t("openOnX")
+    )}">${avatarHTML(user)}</a>
+    <div class="ux-user">
+      <a href="${escapeAttr(profileUrl(user.handle))}" target="_blank" rel="noreferrer noopener"><strong>${escapeHTML(
+        user.name || user.handle
+      )}</strong></a>
+      <span>@${escapeHTML(user.handle)} <span class="ux-badge ux-badge-muted">${escapeHTML(
+        reason
+      )}</span></span>
+    </div>
+    <div class="ux-row-actions">
+      <button class="ux-icon-btn" data-copy="${escapeAttr(
+        user.handle
+      )}" title="${escapeAttr(t("copyHandle", { handle: user.handle }))}" aria-label="${escapeAttr(
+        t("copyHandle", { handle: user.handle })
+      )}">${ICONS.copy}</button>
+      <a class="ux-icon-btn" href="${escapeAttr(
+        profileUrl(user.handle)
+      )}" target="_blank" rel="noreferrer noopener" title="${escapeAttr(
+        t("openOnX")
+      )}" aria-label="${escapeAttr(t("openOnX"))}">${ICONS.external}</a>
+    </div>
+  </div>`;
+}
+
+function renderUnknownSection(state, t) {
+  const users = getUnknownActivityUsers(state);
+  if (!users.length) return "";
+  return `<details class="ux-unknown" data-activity-unknown-list>
+    <summary>${escapeHTML(t("activityUnknownCount", { count: users.length }))}</summary>
+    ${users.map((user) => renderUnknownRow(user, state, t)).join("")}
+  </details>`;
+}
+
+function renderActivityEmpty(state, t) {
+  if (state.activity?.status === "scanning" || state.activity?.status === "paused") {
+    return `<div class="ux-empty"><strong>${escapeHTML(
+      t("activityLiveEmpty")
+    )}</strong></div>`;
+  }
+  const hasInactive = (state.users || []).some(
+    (user) => activityStatus(state, user) === "inactive"
+  );
+  if (!hasInactive) {
+    return `<div class="ux-empty"><strong>${escapeHTML(
+      t("activityNone")
+    )}</strong>${escapeHTML(t("activityStart"))}</div>`;
+  }
+  return `<div class="ux-empty"><strong>${escapeHTML(
+    t("noMatches")
+  )}</strong>${escapeHTML(t("selectHint"))}</div>`;
+}
+
+function renderActivityProgress(state, t) {
+  const activity = state.activity || {};
+  const checked = Number(activity.checked) || 0;
+  const total = Number(activity.total) || 0;
+  const percent = total ? clamp((checked / total) * 100, 0, 100) : 0;
+  const paused = activity.status === "paused";
+  return `<div class="ux-card ux-activity-progress">
+    <div class="ux-card-line"><span class="ux-live-dot${
+      paused ? " is-paused" : ""
+    }"></span><strong>${escapeHTML(
+      paused ? t("paused") : t("activityScanning")
+    )}</strong><span class="ux-muted" data-activity-source>${escapeHTML(
+      activity.source === "graphql" ? t("activitySourceProfile") : t("activitySourceBatch")
+    )}</span></div>
+    <div class="ux-bar"><i data-activity-bar style="width:${percent}%"></i></div>
+    <div class="ux-card-line"><span data-activity-current>${escapeHTML(
+      t("activityCurrent", { handle: activity.current || "?" })
+    )}</span><span class="ux-muted" data-activity-progress>${escapeHTML(
+      t("activityProgress", { checked, total })
+    )}</span></div>
+    <div class="ux-card-line"><span class="ux-muted" data-activity-found>${escapeHTML(
+      t("activityFound", { count: Number(activity.inactive) || 0 })
+    )}</span><span class="ux-muted" data-activity-unknown-live>${escapeHTML(
+      t("activityUnknownCount", { count: Number(activity.unknown) || 0 })
+    )}</span></div>
+    <div class="ux-card-actions">
+      <button class="ux-btn ux-btn-soft" data-action="${
+        paused ? "resume-activity" : "pause-activity"
+      }" data-activity-toggle>${escapeHTML(
+        paused ? t("resume") : t("pause")
+      )}</button>
+      <button class="ux-btn ux-btn-ghost" data-action="cancel-activity">${escapeHTML(
+        t("cancel")
+      )}</button>
+    </div>
+    <div class="ux-muted" data-activity-hint>${escapeHTML(
+      countdownText(state) || t("activityHint")
+    )}</div>
+  </div>`;
+}
+
+function renderActivityView(state, t) {
+  const users = getDisplayUsers(state, "inactive");
+  const hasUsers = (state.users || []).some((user) => user && user.handle);
+  const hasData = Object.values(state.activityEntries || {}).some((entry) =>
+    isActivityFresh(entry)
+  );
+  const scanning =
+    state.activity?.status === "scanning" || state.activity?.status === "paused";
+  const partial = Boolean(state.activityScan && !state.activityScan.complete);
+  const warnings = [];
+  if (state.unverified) {
+    warnings.push(
+      `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+        t("unverified")
+      )}</span></div>`
+    );
+  }
+  if (state.partial) {
+    warnings.push(
+      `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+        t("partialBody", { count: state.scan?.scanned || (state.users || []).length })
+      )}</span></div>`
+    );
+  }
+  if (partial && !scanning) {
+    warnings.push(
+      `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+        t("activityPartial", { count: Number(state.activityScan?.checked) || 0 })
+      )}</span></div>`
+    );
+  }
+  if (activityError(state)) {
+    warnings.push(
+      `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+        activityError(state)
+      )}</span></div>`
+    );
+  }
+
+  const header = `<div class="ux-results-head">
+    <div>
+      <span class="ux-eyebrow">${escapeHTML(t("activityKicker"))}</span>
+      <div class="ux-hero-count">
+        <strong data-activity-count>${users.length}</strong>
+        <span data-activity-unit>${escapeHTML(
+          users.length === 1 ? t("activityUnitOne") : t("activityUnit")
+        )}</span>
+      </div>
+    </div>
+    <div class="ux-results-links">
+      ${
+        scanning
+          ? ""
+          : `<button class="ux-link" data-action="start-activity">${escapeHTML(
+              partial ? t("resume") : hasData ? t("rescan") : t("activityStart")
+            )}</button>`
+      }
+      ${
+        hasData && !scanning
+          ? `<button class="ux-link" data-action="clear-activity">${escapeHTML(
+              t("activityClear")
+            )}</button>`
+          : ""
+      }
+    </div>
+  </div>`;
+
+  if (!hasUsers) {
+    return `<div class="ux-results-body ux-activity" data-activity-view>
+      ${header}
+      ${warnings.join("")}
+      <div class="ux-empty"><strong>${escapeHTML(
+        t("activityNeedsScan")
+      )}</strong>${escapeHTML(t("navigateHint"))}</div>
+    </div>`;
+  }
+
+  if (!hasData && !scanning) {
+    return `<div class="ux-results-body ux-activity" data-activity-view>
+      ${header}
+      ${warnings.join("")}
+      <div class="ux-activity-intro">
+        <p>${escapeHTML(t("activityBody"))}</p>
+        <button class="ux-btn ux-btn-primary ux-btn-block" data-action="start-activity">${escapeHTML(
+          t("activityStart")
+        )}</button>
+      </div>
+    </div>`;
+  }
+
+  const subline = `<div class="ux-subline">
+    <span data-activity-progress>${escapeHTML(
+      t("activityProgress", {
+        checked: Number(state.activity?.checked) || 0,
+        total: Number(state.activity?.total) || 0,
+      })
+    )}</span>
+    <span data-activity-unknown>${escapeHTML(
+      t("activityUnknownCount", { count: getUnknownActivityUsers(state).length })
+    )}</span>
+    <span data-hidden-count>${escapeHTML(
+      t("hiddenCount", { count: setOf(state.hidden).size })
+    )}</span>
+  </div>`;
+
+  const lastChecked = Math.max(
+    0,
+    ...Object.values(state.activityEntries || {})
+      .filter((entry) => isActivityFresh(entry))
+      .map((entry) => Number(entry?.checkedAt) || 0)
+  );
+  const lastCheck = lastChecked
+    ? `<div class="ux-muted">${escapeHTML(
+        t("activityLastCheck", {
+          time: timeAgo(lastChecked, state.language),
+        })
+      )}</div>`
+    : "";
+
+  return `<div class="ux-results-body ux-activity" data-activity-view>
+    ${header}
+    ${scanning ? renderActivityProgress(state, t) : subline}
+    ${scanning ? "" : lastCheck}
+    ${warnings.join("")}
+    ${scanning ? "" : renderControls(state, t)}
+    <div class="ux-list" data-activity-list>${users
+      .map((user) => renderRow(user, state, activityNote(state, user, t)))
+      .join("") || renderActivityEmpty(state, t)}</div>
+    <div data-activity-unknown-host>${renderUnknownSection(state, t)}</div>
+    ${
+      scanning
+        ? ""
+        : renderActionbar(state, t, { locked: false })
+    }
+  </div>`;
+}
+
+function activityError(state) {
+  const activity = state.activity || {};
+  if (!activity.error) return "";
+  return activity.error;
+}
+
 function chip(label, key, on, extra = "") {
   return `<button class="ux-chip${on ? " is-on" : ""}" data-filter="${key}">${escapeHTML(
     label
   )}${extra}</button>`;
 }
 
-export function renderResultsView(state) {
-  const t = makeT(state.language);
-  const users = getDisplayUsers(state);
-  const selected = setOf(state.selected);
+function renderNonFollowersView(state, t) {
+  const users = getDisplayUsers(state, "nonFollowers");
   const hidden = setOf(state.hidden);
   const selectedCount = visibleSelectedCount(state);
-  const allSelected = users.length > 0 && users.every((u) => selected.has(keyOf(u)));
-  const someSelected = users.some((u) => selected.has(keyOf(u)));
-  const filters = { ...DEFAULT_FILTERS, ...(state.filters || {}) };
   const warnings = [];
   if (state.unverified) {
     warnings.push(
@@ -660,7 +1077,7 @@ export function renderResultsView(state) {
       )}</span></div>`
     );
   }
-  return `<section class="ux-view ux-results" data-view="results">
+  return `<div class="ux-results-body" data-nonfollowers-view>
     <div class="ux-results-head">
       <div>
         <span class="ux-eyebrow">${escapeHTML(t("auditKicker"))}</span>
@@ -698,44 +1115,23 @@ export function renderResultsView(state) {
       )}</span>
     </div>
     ${warnings.join("")}
-    <label class="ux-search">${ICONS.search}<input data-search value="${escapeAttr(
-      state.search || ""
-    )}" placeholder="${escapeAttr(t("search"))}" autocomplete="off" spellcheck="false"></label>
-    <div class="ux-chips">
-      ${chip(t("filterVerified"), "verified", filters.verified)}
-      ${chip(t("filterProtected"), "protected", filters.protected)}
-      ${chip(t("filterNoAvatar"), "noAvatar", filters.noAvatar)}
-      ${chip(
-        filters.showHidden && hidden.size
-          ? t("showHiddenCount", { count: hidden.size })
-          : t("filterShowHidden"),
-        "showHidden",
-        filters.showHidden,
-        hidden.size ? `<span class="ux-chip-count">${hidden.size}</span>` : ""
-      )}
-    </div>
+    ${renderControls(state, t)}
     <div class="ux-list" data-list>${
       users.length ? users.map((user) => renderRow(user, state)).join("") : renderEmpty(state, t)
     }</div>
-    <div class="ux-actionbar" data-actionbar>
-      <label class="ux-check"><input type="checkbox" data-select-all ${
-        allSelected ? "checked" : ""
-      } data-indeterminate="${someSelected && !allSelected ? "1" : "0"}">${escapeHTML(
-        t("selectAll")
-      )}</label>
-      <button class="ux-link" data-action="select-none">${escapeHTML(
-        t("selectNone")
-      )}</button>
-      <span class="ux-spacer"></span>
-      <button class="ux-btn ux-btn-ghost" data-action="copy-all">${escapeHTML(
-        t("copyAll")
-      )}</button>
-      <button class="ux-btn ux-btn-primary" data-action="unfollow" ${
-        selectedCount === 0 || state.unverified ? "disabled" : ""
-      } data-unfollow-label>${escapeHTML(
-        t("unfollow")
-      )}${selectedCount ? ` (${selectedCount})` : ""}</button>
-    </div>
+    ${renderActionbar(state, t)}
+  </div>`;
+}
+
+export function renderResultsView(state) {
+  const t = makeT(state.language);
+  return `<section class="ux-view ux-results" data-view="results">
+    ${renderTabs(state, t)}
+    ${
+      state.activeTab === "inactive"
+        ? renderActivityView(state, t)
+        : renderNonFollowersView(state, t)
+    }
   </section>`;
 }
 
@@ -1028,7 +1424,15 @@ export function pillLabel(state) {
     ) || 0}`;
   }
   if (state.mode === "results" || state.mode === "done") {
-    return t("pillResults", { count: getDisplayUsers(state).length });
+    if (state.activeTab === "inactive") {
+      const count = getDisplayUsers(state, "inactive").length;
+      return count === 1
+        ? t("activityFoundOne")
+        : t("activityFound", { count });
+    }
+    return t("pillResults", {
+      count: getDisplayUsers(state, "nonFollowers").length,
+    });
   }
   return t("pillIdle");
 }
