@@ -132,6 +132,19 @@ test("parseLookupUsers accepts the users wrapper", () => {
   assert.equal(parsed.items.length, 3);
 });
 
+test("parseLookupUsers prefers a valid status over a zero count", () => {
+  const parsed = parseLookupUsers([
+    {
+      id_str: "10",
+      screen_name: "erin",
+      statuses_count: 0,
+      status: { created_at: "Thu Oct 29 10:00:00 +0000 2026" },
+    },
+  ]);
+  assert.equal(parsed.byId.get("10").state, "known");
+  assert.equal(parsed.byId.get("10").lastTweetAt, 1793268000000);
+});
+
 test("parseUserTweetsPage finds the newest relevant post", () => {
   const parsed = parseUserTweetsPage(fixture("user-tweets.json"), "1");
   assert.equal(parsed.state, "known");
@@ -482,7 +495,9 @@ function lookupPayload(ids) {
     status:
       id === "2"
         ? { created_at: "Wed Jan 01 10:00:00 +0000 2025" }
-        : { created_at: "Thu Oct 29 10:00:00 +0000 2026" },
+        : id === "3"
+          ? undefined
+          : { created_at: "Thu Oct 29 10:00:00 +0000 2026" },
   }));
 }
 

@@ -80,15 +80,15 @@ function normalizeLookupItem(raw) {
   const createdAt = raw?.status?.created_at;
   let state = "fallback";
   let lastTweetAt = null;
-  if (count === 0) {
-    state = "known";
-    lastTweetAt = 0;
-  } else if (createdAt !== undefined && createdAt !== null && createdAt !== "") {
+  if (createdAt !== undefined && createdAt !== null && createdAt !== "") {
     const parsed = parseTwitterDate(createdAt);
     if (parsed !== null) {
       state = "known";
       lastTweetAt = parsed;
     }
+  } else if (count === 0) {
+    state = "known";
+    lastTweetAt = 0;
   }
   return { id, handle, state, lastTweetAt, statusesCount: count, reason: "" };
 }
