@@ -2369,6 +2369,13 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
       return;
     }
     if (state.unverified) return;
+    if (
+      state.activeTab === "inactive" &&
+      selected.some((user) => typeof user.followsViewer !== "boolean")
+    ) {
+      toast(t()("unverified"));
+      return;
+    }
     const count = selected.length;
     const activityTab = state.activeTab === "inactive";
     const followers = selected.filter(

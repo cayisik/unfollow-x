@@ -1337,7 +1337,12 @@ export function boot() {
       ui.toast(t()("noSelection"));
       return;
     }
-    if (selected.some((user) => user.followsViewer !== false)) {
+    if (state.activeTab === "inactive") {
+      if (selected.some((user) => typeof user.followsViewer !== "boolean")) {
+        ui.toast(t()("unverified"));
+        return;
+      }
+    } else if (selected.some((user) => user.followsViewer !== false)) {
       ui.toast(t()("unverified"));
       return;
     }
@@ -1402,6 +1407,18 @@ export function boot() {
           const key = keyOf(event.user);
           state.users = state.users.filter((user) => keyOf(user) !== key);
           state.selected.delete(key);
+          const entryKey = String(
+            event.user.id || event.user.handle.toLowerCase()
+          );
+          delete state.activityEntries[entryKey];
+          delete state.activityEntries[
+            String(event.user.handle || "").toLowerCase()
+          ];
+          state.activity.inactive = Math.max(
+            0,
+            (Number(state.activity.inactive) || 0) - 1
+          );
+          saveActivity(undefined, state.viewer.handle, state.activityEntries);
         }
         state.unfollow.log.push({
           handle: event.user?.handle || "",

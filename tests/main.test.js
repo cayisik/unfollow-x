@@ -1326,3 +1326,191 @@ test("cleanup flushes throttled activity progress", () => {
     dom.window.close();
   }
 });
+
+test("unfollowing from the inactive tab allows followers with boolean data", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  dom.window.document.cookie = "ct0=test; path=/";
+  const originalFetch = globalThis.fetch;
+  const fakeFetch = async (url) => {
+    if (String(url).includes("unfollowUserMutation")) {
+      return new Response(
+        JSON.stringify({
+          data: { unfollow_user: { __typename: "UnfollowSuccessResult" } },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    return new Response("{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+    fetch: globalThis.fetch,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    set("fetch", fakeFetch);
+    state = boot();
+    const now = Date.now();
+    state.users = [
+      {
+        id: "1",
+        handle: "alice",
+        name: "Alice",
+        followsViewer: true,
+        protected: false,
+        verified: false,
+        avatar: "",
+      },
+      {
+        id: "2",
+        handle: "bob",
+        name: "Bob",
+        followsViewer: false,
+        protected: false,
+        verified: false,
+        avatar: "",
+      },
+    ];
+    state.activityEntries = {
+      "1": {
+        id: "1",
+        handle: "alice",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: now,
+        source: "lookup",
+      },
+      "2": {
+        id: "2",
+        handle: "bob",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: now,
+        source: "lookup",
+      },
+    };
+    state.activeTab = "inactive";
+    state.mode = "results";
+    state.selected = new Set(["1"]);
+    state.unverified = false;
+    state.timings = {
+      ...state.timings,
+      unfollowDelayMin: 0,
+      unfollowDelayMax: 0,
+      unfollowPauseEvery: 0,
+    };
+    state.ui.render();
+    dom.window.document.querySelector('[data-action="unfollow"]').click();
+    dom.window.document.querySelector("[data-confirm]").click();
+    await new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (state.mode === "done" || Date.now() - started > 3000) {
+          return resolve();
+        }
+        setTimeout(tick, 25);
+      };
+      tick();
+    });
+    assert.equal(state.unfollow.ok, 1);
+    assert.equal(state.users.some((user) => user.id === "1"), false);
+    assert.equal(state.activityEntries["1"], undefined);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    globalThis.fetch = originalFetch;
+    dom.window.close();
+  }
+});
+
+test("inactive unfollow blocks unknown relationship data", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  dom.window.document.cookie = "ct0=test; path=/";
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    state = boot();
+    state.users = [
+      {
+        id: "1",
+        handle: "alice",
+        name: "Alice",
+        followsViewer: null,
+        protected: false,
+        verified: false,
+        avatar: "",
+      },
+    ];
+    state.activityEntries = {
+      "1": {
+        id: "1",
+        handle: "alice",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: Date.now(),
+        source: "lookup",
+      },
+    };
+    state.activeTab = "inactive";
+    state.mode = "results";
+    state.selected = new Set(["1"]);
+    state.unverified = false;
+    state.ui.render();
+    dom.window.document.querySelector('[data-action="unfollow"]').click();
+    assert.equal(dom.window.document.querySelector("[data-confirm]"), null);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(state.mode, "results");
+    assert.equal(state.unfollow.ok, 0);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
