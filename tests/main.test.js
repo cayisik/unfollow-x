@@ -1417,6 +1417,13 @@ test("unfollowing from the inactive tab allows followers with boolean data", asy
     state.mode = "results";
     state.selected = new Set(["1"]);
     state.unverified = false;
+    state.activity = {
+      ...state.activity,
+      checked: 2,
+      total: 2,
+      inactive: 2,
+      unknown: 0,
+    };
     state.timings = {
       ...state.timings,
       unfollowDelayMin: 0,
@@ -1439,6 +1446,11 @@ test("unfollowing from the inactive tab allows followers with boolean data", asy
     assert.equal(state.unfollow.ok, 1);
     assert.equal(state.users.some((user) => user.id === "1"), false);
     assert.equal(state.activityEntries["1"], undefined);
+    assert.notEqual(state.activityEntries["2"], undefined);
+    assert.equal(state.activity.inactive, 1);
+    assert.equal(state.activity.checked, 1);
+    assert.equal(state.activity.total, 1);
+    assert.equal(state.activity.unknown, 0);
   } finally {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);
@@ -1511,6 +1523,267 @@ test("inactive unfollow blocks unknown relationship data", async () => {
   } finally {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
+
+test("inactive unfollow removes a handle-keyed activity entry", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  dom.window.document.cookie = "ct0=test; path=/";
+  const originalFetch = globalThis.fetch;
+  const fakeFetch = async (url) => {
+    if (String(url).includes("unfollowUserMutation")) {
+      return new Response(
+        JSON.stringify({
+          data: { unfollow_user: { __typename: "UnfollowSuccessResult" } },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    return new Response("{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+    fetch: globalThis.fetch,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    set("fetch", fakeFetch);
+    state = boot();
+    const now = Date.now();
+    state.users = [
+      {
+        id: "1",
+        handle: "alice",
+        name: "Alice",
+        followsViewer: true,
+        protected: false,
+        verified: false,
+        avatar: "",
+      },
+      {
+        id: "2",
+        handle: "bob",
+        name: "Bob",
+        followsViewer: false,
+        protected: false,
+        verified: false,
+        avatar: "",
+      },
+    ];
+    state.activityEntries = {
+      alice: {
+        id: "1",
+        handle: "alice",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: now,
+        source: "lookup",
+      },
+      "2": {
+        id: "2",
+        handle: "bob",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: now,
+        source: "lookup",
+      },
+    };
+    state.activeTab = "inactive";
+    state.mode = "results";
+    state.selected = new Set(["1"]);
+    state.unverified = false;
+    state.activity = {
+      ...state.activity,
+      checked: 2,
+      total: 2,
+      inactive: 2,
+      unknown: 0,
+    };
+    state.timings = {
+      ...state.timings,
+      unfollowDelayMin: 0,
+      unfollowDelayMax: 0,
+      unfollowPauseEvery: 0,
+    };
+    state.ui.render();
+    dom.window.document.querySelector('[data-action="unfollow"]').click();
+    dom.window.document.querySelector("[data-confirm]").click();
+    await new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (state.mode === "done" || Date.now() - started > 3000) {
+          return resolve();
+        }
+        setTimeout(tick, 25);
+      };
+      tick();
+    });
+    assert.equal(state.unfollow.ok, 1);
+    assert.equal(state.activityEntries.alice, undefined);
+    assert.notEqual(state.activityEntries["2"], undefined);
+    assert.equal(state.activity.inactive, 1);
+    assert.equal(state.activity.checked, 1);
+    assert.equal(state.activity.total, 1);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    globalThis.fetch = originalFetch;
+    dom.window.close();
+  }
+});
+
+test("non-followers unfollow keeps the inactive counter unchanged", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  dom.window.document.cookie = "ct0=test; path=/";
+  const originalFetch = globalThis.fetch;
+  const fakeFetch = async (url) => {
+    if (String(url).includes("unfollowUserMutation")) {
+      return new Response(
+        JSON.stringify({
+          data: { unfollow_user: { __typename: "UnfollowSuccessResult" } },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    return new Response("{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+    fetch: globalThis.fetch,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    set("fetch", fakeFetch);
+    state = boot();
+    const now = Date.now();
+    state.users = [
+      {
+        id: "1",
+        handle: "alice",
+        name: "Alice",
+        followsViewer: false,
+        protected: false,
+        verified: false,
+        avatar: "",
+      },
+      {
+        id: "2",
+        handle: "bob",
+        name: "Bob",
+        followsViewer: false,
+        protected: false,
+        verified: false,
+        avatar: "",
+      },
+    ];
+    state.activityEntries = {
+      "1": {
+        id: "1",
+        handle: "alice",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: now,
+        source: "lookup",
+      },
+      "2": {
+        id: "2",
+        handle: "bob",
+        state: "known",
+        lastTweetAt: now,
+        checkedAt: now,
+        source: "lookup",
+      },
+    };
+    state.activeTab = "nonFollowers";
+    state.mode = "results";
+    state.selected = new Set(["2"]);
+    state.unverified = false;
+    state.activity = {
+      ...state.activity,
+      checked: 2,
+      total: 2,
+      inactive: 1,
+      unknown: 0,
+    };
+    state.timings = {
+      ...state.timings,
+      unfollowDelayMin: 0,
+      unfollowDelayMax: 0,
+      unfollowPauseEvery: 0,
+    };
+    state.ui.render();
+    dom.window.document.querySelector('[data-action="unfollow"]').click();
+    dom.window.document.querySelector("[data-confirm]").click();
+    await new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (state.mode === "done" || Date.now() - started > 3000) {
+          return resolve();
+        }
+        setTimeout(tick, 25);
+      };
+      tick();
+    });
+    assert.equal(state.unfollow.ok, 1);
+    assert.equal(state.users.some((user) => user.id === "2"), false);
+    assert.equal(state.activityEntries["2"], undefined);
+    assert.notEqual(state.activityEntries["1"], undefined);
+    assert.equal(state.activity.inactive, 1);
+    assert.equal(state.activity.checked, 1);
+    assert.equal(state.activity.total, 1);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    globalThis.fetch = originalFetch;
     dom.window.close();
   }
 });

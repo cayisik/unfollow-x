@@ -1407,18 +1407,12 @@ export function boot() {
           const key = keyOf(event.user);
           state.users = state.users.filter((user) => keyOf(user) !== key);
           state.selected.delete(key);
-          const entryKey = String(
-            event.user.id || event.user.handle.toLowerCase()
-          );
-          delete state.activityEntries[entryKey];
+          delete state.activityEntries[key];
           delete state.activityEntries[
             String(event.user.handle || "").toLowerCase()
           ];
-          state.activity.inactive = Math.max(
-            0,
-            (Number(state.activity.inactive) || 0) - 1
-          );
-          saveActivity(undefined, state.viewer.handle, state.activityEntries);
+          refreshActivityCounters(state);
+          saveActivityCache();
         }
         state.unfollow.log.push({
           handle: event.user?.handle || "",
