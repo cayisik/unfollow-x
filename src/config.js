@@ -1,6 +1,6 @@
 // Central configuration: constants, localization, and defaults.
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 
 export const APP_ID = "ux-app";
 export const STYLE_ID = "ux-style";
@@ -10,6 +10,55 @@ export const PILL_ID = "ux-pill";
 export const STORAGE_KEY = "ux_state_v1";
 export const CHECKPOINT_KEY = "ux_scan_v1";
 export const LAST_SCAN_KEY = "ux_last_scan_v1";
+export const ACTIVITY_KEY = "ux_activity_v1";
+export const ACTIVITY_SCAN_KEY = "ux_activity_scan_v1";
+export const ACTIVITY_TTL = 24 * 60 * 60 * 1000;
+export const ACTIVITY_BATCH_SIZE = 10;
+export const ACTIVITY_DEFAULT_DAYS = 30;
+export const ACTIVITY_MIN_DAYS = 1;
+export const ACTIVITY_MAX_DAYS = 365;
+export const ACTIVITY_QUERY_ID = "M9Tz6NGTHeRzqHOPdj9I7g";
+export const ACTIVITY_FEATURES = {
+  articles_preview_enabled: true,
+  c9s_tweet_anatomy_moderator_badge_enabled: true,
+  communities_web_enable_tweet_community_results_fetch: true,
+  creator_subscriptions_quote_tweet_preview_enabled: false,
+  creator_subscriptions_tweet_preview_api_enabled: true,
+  freedom_of_speech_not_reach_fetch_enabled: true,
+  graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
+  longform_notetweets_consumption_enabled: true,
+  longform_notetweets_inline_media_enabled: true,
+  longform_notetweets_rich_text_read_enabled: true,
+  responsive_web_edit_tweet_api_enabled: true,
+  responsive_web_enhance_cards_enabled: false,
+  responsive_web_graphql_exclude_directive_enabled: true,
+  responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+  responsive_web_grok_community_note_auto_translation_is_enabled: false,
+  responsive_web_graphql_timeline_navigation_enabled: true,
+  responsive_web_grok_imagine_annotation_enabled: false,
+  responsive_web_media_download_video_enabled: false,
+  responsive_web_profile_redirect_enabled: true,
+  responsive_web_twitter_article_tweet_consumption_enabled: true,
+  rweb_tipjar_consumption_enabled: true,
+  rweb_video_timestamps_enabled: true,
+  standardized_nudges_misinfo: true,
+  tweet_awards_web_tipping_enabled: false,
+  tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+  tweet_with_visibility_results_prefer_gql_media_interstitial_enabled: false,
+  tweetypie_unmention_optimization_enabled: true,
+  verified_phone_label_enabled: false,
+  view_counts_everywhere_api_enabled: true,
+  responsive_web_grok_analyze_button_fetch_trends_enabled: false,
+  premium_content_api_read_enabled: false,
+  profile_label_improvements_pcf_label_in_post_enabled: false,
+  responsive_web_grok_share_attachment_enabled: false,
+  responsive_web_grok_analyze_post_followups_enabled: false,
+  responsive_web_grok_image_annotation_enabled: false,
+  responsive_web_grok_analysis_button_from_backend: false,
+  responsive_web_jetfuel_frame: false,
+  rweb_video_screen_enabled: true,
+  responsive_web_grok_show_grok_translated_post: true,
+};
 export const STATE_TTL = 24 * 60 * 60 * 1000;
 
 // Public web-client bearer token. This is the same value X ships to every
@@ -277,6 +326,58 @@ export const I18N = {
     selectHint: "Tip: use the filters to narrow the list first.",
     scanSourceHint: "Source: {source}",
     pausedHint: "The scan is paused. Resume when you are ready.",
+    tabNonFollowers: "Non-followers",
+    tabInactive: "Inactive",
+    activityKicker: "Activity audit",
+    activityBody:
+      "Find accounts you follow that have not posted, reposted, or replied in the last 30 days.",
+    activityStart: "Start activity scan",
+    activityScanning: "Checking activity…",
+    activityHint: "Keep this tab visible. You can pause or cancel at any time.",
+    activityProgress: "{checked} / {total} checked",
+    activityCurrent: "Now: @{handle}",
+    activityFound: "{count} inactive accounts",
+    activityFoundOne: "1 inactive account",
+    activityUnit: "inactive accounts",
+    activityUnitOne: "inactive account",
+    activityNone: "No inactive accounts in this window",
+    activityLiveEmpty: "Found inactive accounts will appear here.",
+    activityNever: "No posts yet",
+    activityLastPost: "Last post: {time}",
+    activityLastCheck: "Last check: {time}",
+    activityUnknown: "Could not check",
+    activityUnknownCount: "{count} accounts could not be checked",
+    activityReasonNoId: "No user ID",
+    activityReasonNotFound: "Not found",
+    activityReasonTemplate: "Query failed",
+    activityReasonProtected: "Protected",
+    activityReasonRate: "Rate limited",
+    activityReasonUnavailable: "Unavailable",
+    activityFresh: "Activity data is up to date",
+    activityNeedsScan: "Scan your following list first",
+    activityPartial: "{count} accounts checked. Continue to finish.",
+    activityClear: "Clear activity data",
+    activityCleared: "Activity data cleared",
+    activityClearTitle: "Clear activity data?",
+    activityClearBody:
+      "Last post times and check records will be removed from this device.",
+    activityFallback:
+      "Batch check unavailable; switching to profile checks",
+    activityGraphqlHint:
+      "Open any profile's Replies tab once, then retry",
+    activityCacheWarning:
+      "Could not save activity cache; progress will be lost on reload.",
+    activityFollowsWarning:
+      "{count} selected accounts follow you. Unfollow anyway?",
+    activityUnfollowTitle: "Unfollow {count} inactive accounts?",
+    activityUnfollowBody:
+      "This cannot be undone. These accounts may follow you back.",
+    activityDoneToast: "Activity scan complete: {count} inactive accounts.",
+    activityDays: "Inactive threshold (days)",
+    activitySourceBatch: "Batch",
+    activitySourceProfile: "Profile",
+    pillInactive: "{count} inactive",
+    pillActivity: "Checking activity",
     unfollowPausedHint: "The run is paused. Resume when you are ready.",
   },
   tr: {
@@ -446,6 +547,59 @@ export const I18N = {
     selectHint: "İpucu: önce filtrelerle listeyi daralt.",
     scanSourceHint: "Kaynak: {source}",
     pausedHint: "Tarama duraklatıldı. Hazır olduğunda devam et.",
+    tabNonFollowers: "Takip etmeyenler",
+    tabInactive: "Pasif hesaplar",
+    activityKicker: "Aktivite denetimi",
+    activityBody:
+      "Takip ettiğin hesaplardan son 30 günde gönderi, retweet veya yanıt paylaşmayanları bul.",
+    activityStart: "Aktivite taramasını başlat",
+    activityScanning: "Aktivite kontrol ediliyor…",
+    activityHint:
+      "Bu sekmeyi görünür tut. İstediğin an duraklatıp iptal edebilirsin.",
+    activityProgress: "{checked} / {total} kontrol edildi",
+    activityCurrent: "Şu an: @{handle}",
+    activityFound: "{count} pasif hesap",
+    activityFoundOne: "1 pasif hesap",
+    activityUnit: "pasif hesap",
+    activityUnitOne: "pasif hesap",
+    activityNone: "Bu aralıkta pasif hesap yok",
+    activityLiveEmpty: "Bulunan pasif hesaplar burada görünecek.",
+    activityNever: "Hiç gönderi yok",
+    activityLastPost: "Son gönderi: {time}",
+    activityLastCheck: "Son kontrol: {time}",
+    activityUnknown: "Kontrol edilemedi",
+    activityUnknownCount: "{count} hesap kontrol edilemedi",
+    activityReasonNoId: "Kimlik yok",
+    activityReasonNotFound: "Bulunamadı",
+    activityReasonTemplate: "Sorgu başarısız",
+    activityReasonProtected: "Korumalı",
+    activityReasonRate: "Hız limiti",
+    activityReasonUnavailable: "Erişilemedi",
+    activityFresh: "Aktivite verileri güncel",
+    activityNeedsScan: "Önce takip listeni tara",
+    activityPartial: "{count} hesap kontrol edildi. Tamamlamak için devam et.",
+    activityClear: "Aktivite verilerini temizle",
+    activityCleared: "Aktivite verileri temizlendi",
+    activityClearTitle: "Aktivite verileri silinsin mi?",
+    activityClearBody:
+      "Son gönderi zamanları ve kontrol kayıtları bu cihazdan silinir.",
+    activityFallback:
+      "Toplu kontrol kullanılamadı; hesap başına kontrole geçildi",
+    activityGraphqlHint:
+      "Bir profilin Yanıtlar sekmesini açıp tekrar dene",
+    activityCacheWarning:
+      "Aktivite cache'i kaydedilemedi; sayfa yenilenirse ilerleme kaybolur.",
+    activityFollowsWarning:
+      "Seçilen {count} hesap seni takip ediyor. Yine de takipten çıkılsın mı?",
+    activityUnfollowTitle: "{count} pasif hesaptan çıkılsın mı?",
+    activityUnfollowBody:
+      "Bu işlem geri alınamaz. Bu hesaplar seni takip ediyor olabilir.",
+    activityDoneToast: "Aktivite taraması bitti: {count} pasif hesap.",
+    activityDays: "Pasif eşiği (gün)",
+    activitySourceBatch: "Toplu",
+    activitySourceProfile: "Profil",
+    pillInactive: "{count} pasif",
+    pillActivity: "Aktivite taranıyor",
     unfollowPausedHint: "Çalıştırma duraklatıldı. Hazır olduğunda devam et.",
   },
 };
