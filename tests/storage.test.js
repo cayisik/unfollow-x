@@ -227,6 +227,24 @@ test("activity scan load keeps another viewer's record on mismatch", () => {
   assert.ok(storage.getItem("ux_activity_scan_v1"));
 });
 
+test("stale activity scan from another viewer is not deleted", () => {
+  const storage = memoryStorage();
+  const old = Date.now() - 25 * 60 * 60 * 1000;
+  storage.setItem(
+    "ux_activity_scan_v1",
+    JSON.stringify({
+      viewerHandle: "other",
+      startedAt: old,
+      checked: 10,
+      total: 20,
+      complete: false,
+      savedAt: old,
+    })
+  );
+  assert.equal(loadActivityScan(storage, "me"), null);
+  assert.ok(storage.getItem("ux_activity_scan_v1"));
+});
+
 test("saving activity requires a viewer handle", () => {
   const storage = memoryStorage();
   const entry = { id: "1", checkedAt: Date.now() };
