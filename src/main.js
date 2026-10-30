@@ -1198,7 +1198,7 @@ export function boot() {
         return;
       }
       if (event.kind === "fallback") {
-        state.activity.source = "graphql";
+        state.activity.source = event.to === "show" ? "show" : "graphql";
         ui.toast(t()("activityFallback"));
         scheduleActivityUi(true);
         return;

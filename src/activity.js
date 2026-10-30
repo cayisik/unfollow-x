@@ -5,6 +5,7 @@ import {
   ACTIVITY_MAX_DAYS,
   ACTIVITY_MIN_DAYS,
   ACTIVITY_QUERY_ID,
+  ACTIVITY_QUERY_IDS,
   ACTIVITY_TTL,
   BEARER,
   DEFAULT_TIMINGS,
@@ -299,6 +300,33 @@ export function buildLookupRequest({
   };
 }
 
+export function buildShowUserRequest({
+  userId = "",
+  csrf = "",
+  origin = "",
+} = {}) {
+  const id = String(userId || "").trim();
+  if (!id) throw makeError("format", "show requires user_id");
+  const url = new URL("/i/api/1.1/users/show.json", originOf(origin));
+  url.searchParams.set("user_id", id);
+  url.searchParams.set("include_entities", "true");
+  url.searchParams.set("tweet_mode", "extended");
+  return {
+    url: url.toString(),
+    init: {
+      method: "GET",
+      headers: authHeaders(csrf, false),
+      credentials: "include",
+    },
+  };
+}
+
+export function parseShowUser(json) {
+  const raw = Array.isArray(json) ? json[0] : json?.user || json;
+  if (!raw || typeof raw !== "object") return null;
+  return parseLookupUsers([raw]).items[0] || null;
+}
+
 export function buildActivityRequest(
   template,
   { userId = "", count = 20, csrf = "", origin = "" } = {}
@@ -360,7 +388,7 @@ export function buildActivityRequest(
   };
 }
 
-export function buildDefaultActivityTemplate() {
+export function buildDefaultActivityTemplate(queryId = ACTIVITY_QUERY_ID) {
   const variables = {
     userId: "",
     count: 20,
@@ -370,18 +398,22 @@ export function buildDefaultActivityTemplate() {
     withV2Timeline: true,
   };
   return {
-    url: `https://x.com/i/api/graphql/${ACTIVITY_QUERY_ID}/UserTweetsAndReplies`,
+    url: `https://x.com/i/api/graphql/${queryId}/UserTweetsAndReplies`,
     method: "GET",
     headers: {},
     body: "",
     variables,
     features: ACTIVITY_FEATURES,
     fieldToggles: { withArticlePlainText: false },
-    queryId: ACTIVITY_QUERY_ID,
+    queryId,
     operationName: "UserTweetsAndReplies",
     capturedAt: 0,
     responseSample: null,
   };
+}
+
+export function buildDefaultActivityTemplates() {
+  return ACTIVITY_QUERY_IDS.map((id) => buildDefaultActivityTemplate(id));
 }
 
 function abortError() {
@@ -418,6 +450,7 @@ export async function runActivityScan(options = {}) {
     csrf = "",
     origin = "",
     template = null,
+    templates = null,
     fetchImpl = globalThis.fetch,
     sleepFn = sleep,
     random = Math.random,
@@ -470,9 +503,16 @@ export async function runActivityScan(options = {}) {
   let unknown = 0;
   let requests = 0;
   let lookupMode = Boolean(lookup);
+  let showMode = false;
   let currentSource = lookupMode ? "lookup" : "graphql";
   let graphqlBroken = false;
-  let defaultTemplate = template || null;
+  const templateList =
+    Array.isArray(templates) && templates.length
+      ? templates
+      : template
+        ? [template]
+        : buildDefaultActivityTemplates();
+  let templateIndex = 0;
 
   const check = () => {
     if (signal?.aborted || shouldCancel?.()) throw abortError();
@@ -580,6 +620,15 @@ export async function runActivityScan(options = {}) {
     }
   };
 
+  const advanceTemplate = () => {
+    if (templateIndex < templateList.length - 1) {
+      templateIndex += 1;
+      onProgress({ kind: "template-retry", checked, total, source: currentSource });
+      return true;
+    }
+    return false;
+  };
+
   const breakGraphql = (user) => {
     graphqlBroken = true;
     processEntry(user, {
@@ -662,22 +711,80 @@ export async function runActivityScan(options = {}) {
       processEntry(user, { state: "unknown", reason: "no-id", source: "graphql" });
       return;
     }
-    if (!defaultTemplate) defaultTemplate = buildDefaultActivityTemplate();
-    let request;
-    try {
-      request = buildActivityRequest(defaultTemplate, {
-        userId: user.id,
-        count: 20,
-        csrf,
-        origin,
-      });
-    } catch (error) {
-      if (error.kind === "format") {
+    while (true) {
+      let request;
+      try {
+        request = buildActivityRequest(templateList[templateIndex], {
+          userId: user.id,
+          count: 20,
+          csrf,
+          origin,
+        });
+      } catch (error) {
+        if (error.kind === "format") {
+          if (advanceTemplate()) continue;
+          breakGraphql(user);
+          return;
+        }
+        throw error;
+      }
+      await pace();
+      let json;
+      try {
+        json = await fetchJson(request.url, request.init, {
+          fetchImpl,
+          signal,
+          sleepFn,
+        });
+      } catch (error) {
+        if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
+          processEntry(user, {
+            state: "unknown",
+            reason: "unavailable",
+            source: "graphql",
+          });
+          return;
+        }
+        if (
+          error.kind === "format" &&
+          [400, 404, 405, 410].includes(Number(error.status))
+        ) {
+          if (advanceTemplate()) continue;
+          breakGraphql(user);
+          return;
+        }
+        throw error;
+      }
+      const parsed = parseUserTweetsPage(json, user.id);
+      if (parsed.fatalKind === "template") {
+        if (advanceTemplate()) continue;
         breakGraphql(user);
         return;
       }
-      throw error;
+      if (parsed.fatalKind) {
+        throw makeError(parsed.fatalKind, parsed.reason || parsed.fatalKind, {
+          status: 200,
+          body: json,
+          retryAfter: 0,
+        });
+      }
+      processEntry(user, { ...parsed, source: "graphql" });
+      return;
     }
+  };
+
+  const showUser = async (user) => {
+    if (!showMode) {
+      await graphqlUser(user);
+      return;
+    }
+    if (!user.id) {
+      showMode = false;
+      currentSource = "graphql";
+      await graphqlUser(user);
+      return;
+    }
+    const request = buildShowUserRequest({ userId: user.id, csrf, origin });
     await pace();
     let json;
     try {
@@ -691,32 +798,45 @@ export async function runActivityScan(options = {}) {
         processEntry(user, {
           state: "unknown",
           reason: "unavailable",
-          source: "graphql",
+          source: "show",
         });
         return;
       }
-      if (
-        error.kind === "format" &&
-        [400, 404, 405, 410].includes(Number(error.status))
-      ) {
-        breakGraphql(user);
+      if (isLookupUnsupported(error)) {
+        showMode = false;
+        currentSource = "graphql";
+        onProgress({
+          kind: "fallback",
+          to: "graphql",
+          reason: error.message,
+          checked,
+          total,
+        });
+        await graphqlUser(user);
         return;
       }
       throw error;
     }
-    const parsed = parseUserTweetsPage(json, user.id);
-    if (parsed.fatalKind === "template") {
-      breakGraphql(user);
+    const item = parseShowUser(json);
+    if (!item) {
+      showMode = false;
+      currentSource = "graphql";
+      onProgress({
+        kind: "fallback",
+        to: "graphql",
+        reason: "invalid show response",
+        checked,
+        total,
+      });
+      await graphqlUser(user);
       return;
     }
-    if (parsed.fatalKind) {
-      throw makeError(parsed.fatalKind, parsed.reason || parsed.fatalKind, {
-        status: 200,
-        body: json,
-        retryAfter: 0,
-      });
+    if (!user.id && item.id) user.id = String(item.id);
+    if (item.state === "known") {
+      processEntry(user, { ...item, source: "show" });
+      return;
     }
-    processEntry(user, { ...parsed, source: "graphql" });
+    await graphqlUser(user);
   };
 
   onProgress({ kind: "start", total, source: currentSource });
@@ -771,17 +891,18 @@ export async function runActivityScan(options = {}) {
       } catch (error) {
         if (error.kind === "lookup-unsupported") {
           lookupMode = false;
-          currentSource = "graphql";
+          showMode = true;
+          currentSource = "show";
           onProgress({
             kind: "fallback",
-            to: "graphql",
+            to: "show",
             reason: error.message,
             checked,
             total,
           });
           for (const user of batch) {
             await waitWhilePaused();
-            await graphqlUser(user);
+            await showUser(user);
           }
           continue;
         }
@@ -791,6 +912,10 @@ export async function runActivityScan(options = {}) {
         await waitWhilePaused();
         await graphqlUser(user);
       }
+    } else if (showMode) {
+      const user = takeOne();
+      await waitWhilePaused();
+      await showUser(user);
     } else {
       const user = takeOne();
       await waitWhilePaused();

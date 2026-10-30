@@ -103,7 +103,8 @@ Panel görünmezse x.com üzerinde olduğunu kontrol et ve Console'da hata olup 
 - Takip taraması bittikten sonra sonuç ekranında **Takip etmeyenler** ve **Pasif hesaplar** sekmeleri görünür.
 - **Aktivite taramasını başlat** takip ettiğin tüm hesapları kontrol eder. Tarama otomatik başlamaz.
 - X'in toplu kullanıcı kontrolü 10 hesap/istek olarak yapılır; istekler arasında 1,5–2,5 saniye beklenir ve her 10 istekte yaklaşık 10 saniye duraklanır.
-- Toplu kontrol kullanılamazsa hesap başına `UserTweetsAndReplies` sorgusuna geçilir; bu yol daha yavaştır ve arayüzde **Profil** etiketiyle gösterilir.
+- Toplu kontrol kullanılamazsa hesap başına `users/show` sorgusuna geçilir; bu da kullanılamıyor veya belirsizse hesap başına `UserTweetsAndReplies` sorgusu kullanılır. İki yol da daha yavaştır ve arayüzde **Profil** etiketiyle gösterilir.
+- Birkaç bilinen `UserTweetsAndReplies` sorgu kimliği vazgeçmeden önce sırayla denenir. Bir profilin Yanıtlar sekmesini açmak canlı sorguyu yakaladığı için hâlâ en güvenilir yoldur.
 - Pasiflik penceresinde gönderi, retweet veya yanıt yoksa hesap pasiftir. Pencere Ayarlar'dan **1–365 gün** arasında yapılandırılabilir (varsayılan **30**). Hiç gönderisi olmayanlar da pasif sayılır.
 - Veri okunamayan hesaplar pasif sayılmaz; **Kontrol edilemedi** bölümünde gösterilir ve takipten çıkarılamaz.
 - Pasif sekmeden takipten çıkarma aynı güvenli kuyruğu kullanır. Seçilenler arasında seni takip eden varsa onay penceresi uyarır.

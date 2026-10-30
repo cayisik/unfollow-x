@@ -107,7 +107,8 @@ If the panel does not appear, check that you are on x.com and look for an error 
 - After the following scan, the results view shows **Non-followers** and **Inactive** tabs.
 - **Start activity scan** checks every account you follow. The scan never starts automatically.
 - X's batch lookup is called with 10 accounts per request; requests wait 1.5–2.5 seconds and pause for about 10 seconds every 10 requests.
-- If batch lookup is unavailable, the tool falls back to per-account `UserTweetsAndReplies` queries; this is slower and is labeled **Profile** in the UI.
+- If batch lookup is unavailable, the tool falls back to per-account `users/show`; if that is unavailable or ambiguous, it uses per-account `UserTweetsAndReplies` queries. Both paths are slower and are labeled **Profile** in the UI.
+- Several known `UserTweetsAndReplies` query IDs are tried before giving up. Opening a profile's Replies tab still captures the live query as the most reliable path.
 - An account is inactive when it has no post, repost, or reply in the inactivity window. The window is configurable in Settings from **1 to 365 days** (default **30**). Accounts with no posts at all are also inactive.
 - Accounts whose activity cannot be read are not treated as inactive; they appear in a separate **Could not check** section and cannot be unfollowed.
 - Unfollowing from the inactive tab uses the same safe queue. If selected accounts follow you back, the confirmation dialog warns you.

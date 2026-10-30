@@ -899,7 +899,9 @@ function renderActivityProgress(state, t) {
     }" data-activity-dot></span><strong data-activity-status>${escapeHTML(
       paused ? t("paused") : t("activityScanning")
     )}</strong><span class="ux-muted" data-activity-source>${escapeHTML(
-      activity.source === "graphql" ? t("activitySourceProfile") : t("activitySourceBatch")
+      activity.source === "graphql" || activity.source === "show"
+        ? t("activitySourceProfile")
+        : t("activitySourceBatch")
     )}</span></div>
     <div class="ux-bar"><i data-activity-bar style="width:${percent}%"></i></div>
     <div class="ux-card-line"><span data-activity-current>${escapeHTML(
@@ -2094,7 +2096,8 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     const source = root.querySelector("[data-activity-source]");
     if (source) {
       source.textContent =
-        state.activity?.source === "graphql"
+        state.activity?.source === "graphql" ||
+        state.activity?.source === "show"
           ? t()("activitySourceProfile")
           : t()("activitySourceBatch");
     }

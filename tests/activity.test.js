@@ -6,13 +6,15 @@ import {
   buildActivityRequest,
   buildDefaultActivityTemplate,
   buildLookupRequest,
+  buildShowUserRequest,
   classifyActivity,
   isActivityFresh,
   parseLookupUsers,
+  parseShowUser,
   parseTwitterDate,
   parseUserTweetsPage,
 } from "../src/activity.js";
-import { ACTIVITY_QUERY_ID } from "../src/config.js";
+import { ACTIVITY_QUERY_ID, ACTIVITY_QUERY_IDS } from "../src/config.js";
 
 const fixture = (name) =>
   JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
@@ -516,6 +518,50 @@ function jsonResponse(body, status = 200) {
     headers: { "content-type": "application/json" },
   });
 }
+
+test("buildShowUserRequest builds the v1.1 show endpoint", () => {
+  const request = buildShowUserRequest({
+    userId: "42",
+    csrf: "token",
+    origin: "https://x.com",
+  });
+  const url = new URL(request.url);
+  assert.equal(url.pathname, "/i/api/1.1/users/show.json");
+  assert.equal(url.searchParams.get("user_id"), "42");
+  assert.equal(url.searchParams.get("include_entities"), "true");
+  assert.equal(url.searchParams.get("tweet_mode"), "extended");
+  assert.equal(request.init.headers["x-csrf-token"], "token");
+  assert.equal(request.init.credentials, "include");
+});
+
+test("buildShowUserRequest requires a user id", () => {
+  assert.throws(
+    () => buildShowUserRequest({}),
+    (error) => error.kind === "format" && /user_id/.test(error.message)
+  );
+});
+
+test("parseShowUser parses a single v1.1 user", () => {
+  const withStatus = parseShowUser({
+    id_str: "11",
+    screen_name: "frank",
+    statuses_count: 12,
+    status: { created_at: "Thu Oct 29 10:00:00 +0000 2026" },
+  });
+  assert.equal(withStatus.state, "known");
+  assert.equal(withStatus.lastTweetAt, 1793268000000);
+
+  const empty = parseShowUser({
+    id_str: "12",
+    screen_name: "gina",
+    statuses_count: 0,
+  });
+  assert.equal(empty.state, "known");
+  assert.equal(empty.lastTweetAt, 0);
+
+  assert.equal(parseShowUser(null), null);
+  assert.equal(parseShowUser({ errors: [{ message: "nope" }] }), null);
+});
 
 function lookupPayload(ids) {
   return ids.map((id) => ({
@@ -1050,4 +1096,137 @@ test("runActivityScan paces between lookup batches without a final delay", async
     now: NOW,
   });
   assert.deepEqual(sleeps, [100, 100]);
+});
+
+const ZERO_TIMINGS = {
+  scanDelayMin: 0,
+  scanDelayMax: 0,
+  scanPauseEveryPages: 0,
+  scanPauseMs: 0,
+};
+
+test("runActivityScan uses users/show when lookup is unsupported", async () => {
+  const users = [makeUser(1, "alice")];
+  const calls = [];
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("users/lookup")) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (String(url).includes("users/show")) {
+        return jsonResponse({
+          id_str: "1",
+          screen_name: "alice",
+          statuses_count: 5,
+          status: { created_at: "Thu Oct 29 10:00:00 +0000 2026" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].includes("users/show.json"));
+  assert.equal(output.source, "show");
+  assert.equal(output.checked, 1);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].state, "known");
+  assert.equal(results[0].lastTweetAt, 1793268000000);
+  assert.equal(results[0].source, "show");
+});
+
+test("runActivityScan falls back to GraphQL when users/show also fails", async () => {
+  const users = [makeUser(1, "alice")];
+  const calls = [];
+  const progress = [];
+  const results = [];
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("users/lookup")) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (String(url).includes("users/show")) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      return jsonResponse(authorPage(1));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onProgress: (event) => progress.push(event),
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls.length, 3);
+  assert.equal(output.source, "graphql");
+  assert.equal(output.checked, 1);
+  assert.equal(results[0].state, "known");
+  assert.equal(results[0].source, "graphql");
+  assert.ok(
+    progress.some((event) => event.kind === "fallback" && event.to === "show")
+  );
+  assert.ok(
+    progress.some((event) => event.kind === "fallback" && event.to === "graphql")
+  );
+});
+
+test("runActivityScan cycles default templates when a query id is stale", async () => {
+  const users = [makeUser(1, "alice")];
+  const calls = [];
+  const progress = [];
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (calls.length === 1) return jsonResponse({}, 404);
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onProgress: (event) => progress.push(event),
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].includes(ACTIVITY_QUERY_IDS[0]));
+  assert.ok(calls[1].includes(ACTIVITY_QUERY_IDS[1]));
+  assert.equal(output.checked, 1);
+  assert.equal(output.stopped, "done");
+  assert.equal(
+    progress.some((event) => event.kind === "template-broken"),
+    false
+  );
+  assert.ok(progress.some((event) => event.kind === "template-retry"));
+});
+
+test("runActivityScan stops when every default template is broken", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const results = [];
+  let calls = 0;
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    fetchImpl: async () => {
+      calls += 1;
+      return jsonResponse({}, 404);
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls, ACTIVITY_QUERY_IDS.length);
+  assert.equal(output.stopped, "template");
+  assert.equal(output.checked, 2);
+  assert.equal(output.unknown, 2);
+  assert.ok(
+    results.every((entry) => entry.state === "unknown" && entry.reason === "template")
+  );
 });

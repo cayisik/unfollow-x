@@ -17,7 +17,13 @@ export const ACTIVITY_BATCH_SIZE = 10;
 export const ACTIVITY_DEFAULT_DAYS = 30;
 export const ACTIVITY_MIN_DAYS = 1;
 export const ACTIVITY_MAX_DAYS = 365;
-export const ACTIVITY_QUERY_ID = "M9Tz6NGTHeRzqHOPdj9I7g";
+export const ACTIVITY_QUERY_IDS = [
+  "ekwzBXpJcRI38DI6gJk_OQ",
+  "Vg5aF036K40ST3FWvnvRGA",
+  "_dEwIMW2hHUTejaIafUiLA",
+  "M9Tz6NGTHeRzqHOPdj9I7g",
+];
+export const ACTIVITY_QUERY_ID = ACTIVITY_QUERY_IDS[0];
 export const ACTIVITY_FEATURES = {
   articles_preview_enabled: true,
   c9s_tweet_anatomy_moderator_badge_enabled: true,
