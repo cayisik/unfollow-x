@@ -48,6 +48,16 @@ const entriesInstruction = (entries) => [
   { type: "TimelineAddEntries", entries },
 ];
 
+const authorPage = (authorId) =>
+  timelinePage(
+    entriesInstruction([
+      tweetEntry(
+        "tweet-1",
+        tweet("100", String(authorId), "Thu Oct 29 10:00:00 +0000 2026")
+      ),
+    ])
+  );
+
 test("parseTwitterDate accepts the X date format", () => {
   assert.equal(
     parseTwitterDate("Thu Oct 29 10:00:00 +0000 2026"),
@@ -247,6 +257,26 @@ test("parseUserTweetsPage ignores foreign-author non-retweets", () => {
       tweetEntry(
         "tweet-1",
         tweet("200", "999", "Thu Oct 30 11:00:00 +0000 2026")
+      ),
+      tweetEntry(
+        "tweet-2",
+        tweet("201", "1", "Wed Oct 28 10:00:00 +0000 2026")
+      ),
+    ])
+  );
+  const parsed = parseUserTweetsPage(json, "1");
+  assert.equal(parsed.state, "known");
+  assert.equal(parsed.lastTweetAt, 1793181600000);
+});
+
+test("parseUserTweetsPage ignores foreign-author retweets", () => {
+  const json = timelinePage(
+    entriesInstruction([
+      tweetEntry(
+        "tweet-1",
+        tweet("200", "999", "Thu Oct 30 11:00:00 +0000 2026", {
+          retweeted_status_result: { result: { rest_id: "50" } },
+        })
       ),
       tweetEntry(
         "tweet-2",
@@ -690,6 +720,36 @@ test("runActivityScan paces before requests and skips the first delay", async ()
   assert.equal(output.checked, 2);
 });
 
+test("runActivityScan observes a pause that starts during a delay", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const events = [];
+  let paused = false;
+  const output = await runActivityScan({
+    users,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      events.push("fetch");
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async (ms) => {
+      events.push(`sleep:${ms}`);
+      if (ms === 100) paused = true;
+      if (ms === 250) paused = false;
+    },
+    shouldPause: () => paused,
+    timings: {
+      scanDelayMin: 100,
+      scanDelayMax: 100,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    },
+    now: NOW,
+  });
+  assert.deepEqual(events, ["fetch", "sleep:100", "sleep:250", "fetch"]);
+  assert.equal(output.checked, 2);
+});
+
 test("runActivityScan pauses once before the request after the page threshold", async () => {
   const users = Array.from({ length: 11 }, (_, index) =>
     makeUser(index + 1, `u${index + 1}`)
@@ -731,7 +791,7 @@ test("runActivityScan resolves a handle-only fallback to an id for GraphQL", asy
           { id_str: "42", screen_name: "alice", statuses_count: 7 },
         ]);
       }
-      return jsonResponse(fixture("user-tweets.json"));
+      return jsonResponse(authorPage(42));
     },
     sleepFn: async () => {},
     timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
@@ -764,7 +824,7 @@ test("runActivityScan keeps scanning after a per-user GraphQL 404", async () => 
       if (calls === 1) {
         return jsonResponse({ errors: [{ message: "Could not find user" }] }, 404);
       }
-      return jsonResponse(fixture("user-tweets.json"));
+      return jsonResponse(authorPage(2));
     },
     sleepFn: async () => {},
     timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
@@ -832,6 +892,30 @@ test("runActivityScan rechecks fresh cache entries marked template", async () =>
   assert.equal(output.checked, 1);
 });
 
+test("runActivityScan rechecks fresh unknown entries but skips known ones", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const cache = {
+    "1": { id: "1", handle: "alice", state: "unknown", reason: "unavailable", checkedAt: NOW },
+    "2": { id: "2", handle: "bob", state: "known", lastTweetAt: NOW - 1000, checkedAt: NOW },
+  };
+  let calls = 0;
+  const output = await runActivityScan({
+    users,
+    cache,
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => {
+      calls += 1;
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    sleepFn: async () => {},
+    timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
+    now: NOW,
+  });
+  assert.equal(calls, 1);
+  assert.equal(output.checked, 1);
+});
+
 test("runActivityScan deduplicates users before checking", async () => {
   const users = [makeUser(1, "alice"), makeUser(1, "alice"), makeUser(1, "alice")];
   const calls = [];
@@ -872,7 +956,7 @@ test("runActivityScan keeps scanning after a suspended-user 403", async () => {
           403
         );
       }
-      return jsonResponse(fixture("user-tweets.json"));
+      return jsonResponse(authorPage(2));
     },
     sleepFn: async () => {},
     timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },
@@ -907,7 +991,7 @@ test("runActivityScan keeps scanning after a per-user 401", async () => {
           401
         );
       }
-      return jsonResponse(fixture("user-tweets.json"));
+      return jsonResponse(authorPage(2));
     },
     sleepFn: async () => {},
     timings: { scanDelayMin: 0, scanDelayMax: 0, scanPauseEveryPages: 0, scanPauseMs: 0 },

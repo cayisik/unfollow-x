@@ -12,7 +12,7 @@ Bu resmî olmayan bir topluluk aracıdır. X Corp. ile bağlantılı değildir. 
 
 - Kendi Takip Edilenler listeni X'in web oturumu üzerinden okur.
 - Geri takip verilerini karşılaştırır ve `followed_by` bayrağı false olan hesapları listeler.
-- Takip ettiğin hesaplar arasında son 30 günde gönderi, retweet veya yanıt paylaşmayanları ayrı bir "Pasif hesaplar" sekmesinde listeler.
+- Takip ettiğin hesaplar arasında pasiflik penceresinde (1–365 gün, varsayılan 30) gönderi, retweet veya yanıt paylaşmayanları ayrı bir "Pasif hesaplar" sekmesinde listeler.
 - Arama, filtreler, seçim, kopyalama, gizleme/gösterme, kontrol noktası/devam etme, son taramayı geri yükleme, TR/EN arayüz ve kalıcı ayarlar sunar.
 - Yalnızca açık bir onaydan sonra takipten çıkarır; çalıştırma başına üst sınır, rastgele gecikmeler, uzun duraklamalar ve hız sınırı durdurmaları uygular.
 - Tarama sırasında hesabını asla değiştirmez. Tarama salt okunurdur.
@@ -104,7 +104,7 @@ Panel görünmezse x.com üzerinde olduğunu kontrol et ve Console'da hata olup 
 - **Aktivite taramasını başlat** takip ettiğin tüm hesapları kontrol eder. Tarama otomatik başlamaz.
 - X'in toplu kullanıcı kontrolü 10 hesap/istek olarak yapılır; istekler arasında 1,5–2,5 saniye beklenir ve her 10 istekte yaklaşık 10 saniye duraklanır.
 - Toplu kontrol kullanılamazsa hesap başına `UserTweetsAndReplies` sorgusuna geçilir; bu yol daha yavaştır ve arayüzde **Profil** etiketiyle gösterilir.
-- Son 30 günde gönderi, retweet veya yanıt yoksa hesap pasiftir. Hiç gönderisi olmayanlar da pasif sayılır.
+- Pasiflik penceresinde gönderi, retweet veya yanıt yoksa hesap pasiftir. Pencere Ayarlar'dan **1–365 gün** arasında yapılandırılabilir (varsayılan **30**). Hiç gönderisi olmayanlar da pasif sayılır.
 - Veri okunamayan hesaplar pasif sayılmaz; **Kontrol edilemedi** bölümünde gösterilir ve takipten çıkarılamaz.
 - Pasif sekmeden takipten çıkarma aynı güvenli kuyruğu kullanır. Seçilenler arasında seni takip eden varsa onay penceresi uyarır.
 
@@ -163,7 +163,7 @@ Takip Edilenler sayfasında, İngilizce veya Türkçe olarak, sekme görünürke
 
 - Toplu kontrol: 10 hesap/istek.
 - İstek gecikmesi: 1,5–2,5 saniye; her 10 istekte yaklaşık 10 saniye duraklama.
-- `429` durur ve bekleme saatini gösterir; `401`/`403` oturum/engel mesajıyla durur.
+- `429` durur ve bekleme saatini gösterir. Oturum düzeyindeki `401`/`403` taramayı oturum/engel mesajıyla durdurur; hesap bazında suspended/korumalı yanıtlar **Kontrol edilemedi** olarak kaydedilir ve tarama devam eder.
 - Hesap başına yedek sorgu yalnızca toplu kontrol eksik veri döndürdüğünde çalışır.
 - Aktivite taraması salt okunurdur; bu aşamada hiçbir hesap takipten çıkarılmaz.
 
@@ -178,7 +178,7 @@ Takip Edilenler sayfasında, İngilizce veya Türkçe olarak, sekme görünürke
 - Yakalanan GraphQL şablonu yalnızca bellekte yaşar ve sayfa yenilendiğinde veya kapatıldığında atılır.
 - Paneli kapatmak olay dinleyicilerini kaldırır ve yamalanmış `fetch` / `XMLHttpRequest` yöntemlerini geri yükler.
 - Aktivite kayıtları `ux_activity_v1`, yarım kalan tarama `ux_activity_scan_v1` anahtarlarıyla yalnızca yerel `localStorage`'da tutulur.
-- Kayıtlarda yalnızca son gönderi zamanı, kontrol zamanı, durum ve kaynak bulunur; tweet metni, bio veya medya saklanmaz.
+- Kayıtlarda yalnızca hesap kimliği ve kullanıcı adı, son gönderi zamanı, neden, kontrol zamanı, durum ve kaynak bulunur; tweet metni, bio veya medya saklanmaz.
 - Aktivite kayıtları 24 saat sonra düşer ve görüntüleyen hesaba bağlıdır. **Aktivite verilerini temizle** ile anında silinebilir.
 
 ---
@@ -279,11 +279,13 @@ Faydalı ayrıntılar:
 - `src/index.js` paket giriş noktasıdır. x.com host korumasını uygular ve testler için `globalThis.__UX_TEST__` açar.
 - `src/main.js` başlatma, gezinme, tarama/takipten çıkarma düzenlemesi, kalıcılık ve temizliği içerir.
 - `src/api.js` GraphQL taramalarını oluşturur ve sayfalar.
+- `src/activity.js` aktivite yanıtlarını ayrıştırır, toplu kontrolleri yapar ve hesap başına yedeği çalıştırır.
 - `src/dom.js` satırları ayrıştırır ve DOM yedeğini sağlar.
 - `src/unfollow.js` mutasyon → REST → UI taşıma zincirini uygular.
 - `src/ui.js` paneli, görünümleri, iletişim kutularını, stilleri ve etkileşimleri içerir.
 - `src/theme.js` X'in tema ve erişilebilirlik bayraklarını okur ve değişiklikleri izler.
 - `tests/` URL/yanıt ayrıştırma, DOM ayrıştırma, UI, hız, taşıma ve jsdom başlatma → tarama → takipten çıkarma akışını kapsar.
+- `tests/activity.test.js` aktivite ayrıştırma, cache tazeliği, hız ve tarama sonuçlarını kapsar.
 
 `unfollow-x.js` dosyasını elle düzenleme. `src/` içinde değişiklik yap ve `npm run build` çalıştır.
 

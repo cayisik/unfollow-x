@@ -171,8 +171,7 @@ function tweetTimestamp(result, userId) {
   }
   const legacy = tweet.legacy || {};
   const authorId = String(tweet.core?.user_results?.result?.rest_id || "");
-  const isRetweet = Boolean(legacy.retweeted_status_result);
-  const relevant = isRetweet || !userId || authorId === String(userId);
+  const relevant = !userId || authorId === String(userId);
   if (!relevant) return { relevant: false, at: null };
   return { relevant: true, at: parseTwitterDate(legacy.created_at) };
 }
@@ -458,7 +457,9 @@ export async function runActivityScan(options = {}) {
       if (!user || !user.handle) return false;
       if (force) return true;
       const cached = activityEntryFor(cache, user);
-      if (cached?.reason === "template") return true;
+      if (cached?.reason === "template" || cached?.state === "unknown") {
+        return true;
+      }
       return !isActivityFresh(cached, clock());
     }
   );
@@ -501,6 +502,8 @@ export async function runActivityScan(options = {}) {
           source: currentSource,
         });
         await sleepFn(wait);
+        if (shouldPause?.()) await waitWhilePaused();
+        check();
       }
       if (pauseEvery > 0 && requests % pauseEvery === 0 && pauseMs > 0) {
         onProgress({
@@ -511,6 +514,8 @@ export async function runActivityScan(options = {}) {
           source: currentSource,
         });
         await sleepFn(pauseMs);
+        if (shouldPause?.()) await waitWhilePaused();
+        check();
       }
     }
     requests += 1;

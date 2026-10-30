@@ -626,7 +626,7 @@ test("partial activity view warns and labels both scan actions as resume", () =>
 test("activity errors surface as a warning", () => {
   const s = state();
   s.activeTab = "inactive";
-  s.activity = { ...s.activity, error: "Rate limited" };
+  s.activity = { ...s.activity, status: "error", error: "Rate limited" };
   s.activityEntries = {
     "1": {
       id: "1",
@@ -638,6 +638,27 @@ test("activity errors surface as a warning", () => {
   };
   const html = renderResultsView(s);
   assert.match(html, /Rate limited/);
+});
+
+test("activity error state offers retry and back actions", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activity = { ...s.activity, status: "error", error: "Rate limited" };
+  const intro = renderResultsView(s);
+  assert.match(intro, /data-action="start-activity">Retry</);
+  assert.match(intro, /data-action="tab" data-tab="nonFollowers">Back</);
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const full = renderResultsView(s);
+  assert.match(full, /data-action="start-activity">Retry</);
+  assert.match(full, /data-action="tab" data-tab="nonFollowers">Back</);
 });
 
 test("completed activity view reports zero inactive accounts", () => {
@@ -796,6 +817,78 @@ test("passive unfollow confirmation omits the follows-you warning when safe", ()
   dom.window.document.querySelector('[data-action="unfollow"]').click();
   const dialog = dom.window.document.querySelector('[role="dialog"]');
   assert.equal(dialog.querySelector(".ux-warning"), null);
+});
+
+test("inactive confirmation only counts visible inactive selections", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const now = Date.now();
+  const s = state();
+  s.activeTab = "inactive";
+  s.selected = new Set(["1", "2"]);
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: now,
+    },
+    "2": {
+      id: "2",
+      handle: "bob",
+      state: "known",
+      lastTweetAt: now,
+      checkedAt: now,
+    },
+  };
+  mountUI({ state: s });
+  dom.window.document.querySelector('[data-action="unfollow"]').click();
+  const dialog = dom.window.document.querySelector('[role="dialog"]');
+  assert.ok(dialog);
+  assert.match(dialog.textContent, /Unfollow 1 inactive accounts\?/);
+  assert.doesNotMatch(dialog.textContent, /Unfollow 2/);
+  pruneSelection(s);
+  assert.deepEqual([...s.selected], ["1"]);
+});
+
+test("following controls lock while an activity scan is running", () => {
+  const s = state();
+  s.activeTab = "nonFollowers";
+  s.active = { job: "activity", running: true };
+  const html = renderResultsView(s);
+  const document = new JSDOM(`<!doctype html><body>${html}</body>`).window
+    .document;
+  assert.equal(
+    document.querySelector('[data-action="unfollow"]').disabled,
+    true
+  );
+  assert.equal(document.querySelector('[data-action="rescan"]').disabled, true);
+});
+
+test("inactive selection with unknown follow-back keeps unfollow disabled", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.selected = new Set(["1"]);
+  s.users[0].followsViewer = null;
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  mountUI({ state: s });
+  const button = dom.window.document.querySelector('[data-action="unfollow"]');
+  assert.equal(button.disabled, true);
+  button.click();
+  assert.equal(dom.window.document.querySelector('[role="dialog"]'), null);
 });
 
 test("activity live card shows scan progress and controls", () => {

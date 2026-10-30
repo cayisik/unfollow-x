@@ -12,7 +12,7 @@ This is an unofficial community tool. It is not affiliated with X Corp. Automati
 
 - Reads your own Following list through X's web session.
 - Compares follow-back data and lists accounts whose `followed_by` flag is false.
-- Lists accounts you follow that have not posted, reposted, or replied in the last 30 days in a separate "Inactive" tab.
+- Lists accounts you follow that have not posted, reposted, or replied in the inactivity window (1–365 days, default 30) in a separate "Inactive" tab.
 - Provides search, filters, selection, copy, hide/show, checkpoint/resume, last-scan restore, TR/EN UI, and persistent settings.
 - Unfollows only after an explicit confirmation, with a per-run cap, randomized delays, long pauses, and rate-limit stops.
 - Never changes your account during a scan. Scanning is read-only.
@@ -108,7 +108,7 @@ If the panel does not appear, check that you are on x.com and look for an error 
 - **Start activity scan** checks every account you follow. The scan never starts automatically.
 - X's batch lookup is called with 10 accounts per request; requests wait 1.5–2.5 seconds and pause for about 10 seconds every 10 requests.
 - If batch lookup is unavailable, the tool falls back to per-account `UserTweetsAndReplies` queries; this is slower and is labeled **Profile** in the UI.
-- An account is inactive when it has no post, repost, or reply in the last 30 days. Accounts with no posts at all are also inactive.
+- An account is inactive when it has no post, repost, or reply in the inactivity window. The window is configurable in Settings from **1 to 365 days** (default **30**). Accounts with no posts at all are also inactive.
 - Accounts whose activity cannot be read are not treated as inactive; they appear in a separate **Could not check** section and cannot be unfollowed.
 - Unfollowing from the inactive tab uses the same safe queue. If selected accounts follow you back, the confirmation dialog warns you.
 
@@ -167,7 +167,7 @@ Rescan on the Following page, in English or Turkish, with the tab visible. The A
 
 - Batch check: 10 accounts per request.
 - Request delay: 1.5–2.5 seconds; a pause of about 10 seconds every 10 requests.
-- `429` stops and shows the reset time; `401`/`403` stop with a session/block message.
+- `429` stops and shows the reset time. Session-level `401`/`403` stop the scan with a session/block message; per-account suspended or protected responses are recorded as **Could not check** and the scan continues.
 - The per-account fallback runs only when batch lookup returns incomplete data.
 - The activity scan is read-only; nothing is unfollowed during this phase.
 
@@ -182,7 +182,7 @@ Rescan on the Following page, in English or Turkish, with the tab visible. The A
 - The captured GraphQL template lives only in memory and is discarded on reload or close.
 - Closing the panel removes its event listeners and restores the patched `fetch` / `XMLHttpRequest` methods.
 - Activity records are stored only in local `localStorage` under `ux_activity_v1`; an interrupted scan uses `ux_activity_scan_v1`.
-- Records contain only the last post time, check time, state, and source; no tweet text, bio, or media is stored.
+- Records contain only the account id and handle, last post time, reason, check time, state, and source; no tweet text, bio, or media is stored.
 - Activity records expire after 24 hours, are bound to the viewing account, and can be removed immediately with **Clear activity data**.
 
 ---
@@ -283,11 +283,13 @@ Useful details:
 - `src/index.js` is the bundle entry point. It enforces the x.com host guard and exposes `globalThis.__UX_TEST__` for tests.
 - `src/main.js` contains boot, navigation, scan/unfollow orchestration, persistence, and cleanup.
 - `src/api.js` builds and paginates GraphQL scans.
+- `src/activity.js` parses activity responses, batches lookups, and runs the per-account fallback.
 - `src/dom.js` parses rows and provides the DOM fallback.
 - `src/unfollow.js` implements the mutation → REST → UI transport chain.
 - `src/ui.js` contains the panel, views, dialogs, styles, and interactions.
 - `src/theme.js` reads X's theme and accessibility flags and observes changes.
 - `tests/` covers URL/response parsing, DOM parsing, UI, pacing, transports, and a jsdom boot → scan → unfollow flow.
+- `tests/activity.test.js` covers activity parsing, cache freshness, pacing, and scan outcomes.
 
 Do not edit `unfollow-x.js` by hand. Change `src/` and run `npm run build`.
 

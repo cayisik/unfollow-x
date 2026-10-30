@@ -48,7 +48,13 @@ import {
   RESERVED,
 } from "./dom.js";
 import { runUnfollowQueue } from "./unfollow.js";
-import { mountUI, showDialog, keyOf } from "./ui.js";
+import {
+  mountUI,
+  showDialog,
+  keyOf,
+  getDisplayUsers,
+  pruneSelection,
+} from "./ui.js";
 import { observeXAppearance } from "./theme.js";
 import {
   runActivityScan,
@@ -744,6 +750,7 @@ export function boot() {
   function finishScan(result) {
     if (state.disposed) return;
     state.users = mergeScan(state.users, result.users || []);
+    refreshActivityCounters(state);
     state.source = result.source || state.source;
     state.scan = {
       ...state.scan,
@@ -1101,7 +1108,7 @@ export function boot() {
     const candidates = state.users.filter((user) => {
       if (!user || !user.handle) return false;
       const entry = activityEntryFor(state.activityEntries, user);
-      if (entry?.reason === "template") return true;
+      if (entry?.reason === "template" || entry?.state === "unknown") return true;
       return !isActivityFresh(entry);
     });
     if (!candidates.length) {
@@ -1109,6 +1116,7 @@ export function boot() {
       state.mode = "results";
       state.activityScan = null;
       clearActivityScan(undefined);
+      pruneSelection(state);
       hydrateActivityCounters(state);
       ui.render();
       ui.toast(t()("activityFresh"));
@@ -1116,6 +1124,7 @@ export function boot() {
     }
 
     state.activeTab = "inactive";
+    pruneSelection(state);
     state.mode = "results";
     state.error = "";
     state.paused = false;
@@ -1254,6 +1263,7 @@ export function boot() {
       state.active.wake = null;
       state.active.job = null;
       state.paused = false;
+      pruneSelection(state);
       ui.render();
       if (!templateStopped) {
         ui.toast(
@@ -1298,6 +1308,7 @@ export function boot() {
         }
       }
       persistActivity(true);
+      pruneSelection(state);
       ui.render();
     }
   }
@@ -1326,12 +1337,14 @@ export function boot() {
     }
     const session = ensureSession();
     if (!session) return;
+    const visibleKeys = new Set(getDisplayUsers(state).map(keyOf));
     const selected = state.users.filter(
       (user) =>
         user &&
         user.handle &&
         state.selected instanceof Set &&
-        state.selected.has(keyOf(user))
+        state.selected.has(keyOf(user)) &&
+        visibleKeys.has(keyOf(user))
     );
     if (!selected.length) {
       ui.toast(t()("noSelection"));
@@ -1536,6 +1549,7 @@ export function boot() {
         ACTIVITY_MAX_DAYS
       );
       if (!state.active.running) refreshActivityCounters(state);
+      pruneSelection(state);
       persist(state);
       ui.toast(t()("settingsSaved"));
       return;

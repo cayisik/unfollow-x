@@ -155,6 +155,28 @@ test("activity load prunes stale entries already on disk", () => {
     })
   );
   assert.deepEqual(Object.keys(loadActivity(storage, "me")), ["fresh"]);
+  const stored = JSON.parse(storage.getItem("ux_activity_v1"));
+  assert.deepEqual(Object.keys(stored.entries), ["fresh"]);
+  assert.equal(stored.version, 1);
+  assert.equal(stored.viewerHandle, "me");
+});
+
+test("activity load removes the key when every entry is stale", () => {
+  const storage = memoryStorage();
+  const now = Date.now();
+  storage.setItem(
+    "ux_activity_v1",
+    JSON.stringify({
+      version: 1,
+      viewerHandle: "me",
+      savedAt: now,
+      entries: {
+        stale: { id: "stale", checkedAt: now - 25 * 60 * 60 * 1000 },
+      },
+    })
+  );
+  assert.deepEqual(loadActivity(storage, "me"), {});
+  assert.equal(storage.getItem("ux_activity_v1"), null);
 });
 
 test("activity load drops entries checked in the future", () => {

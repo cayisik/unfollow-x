@@ -872,7 +872,25 @@
       return {};
     }
     if (!sameViewer(viewerHandle, parsed.viewerHandle)) return {};
-    return freshActivityEntries(parsed.entries);
+    const fresh = freshActivityEntries(parsed.entries);
+    const storedCount = Object.keys(parsed.entries).length;
+    const freshCount = Object.keys(fresh).length;
+    if (freshCount !== storedCount) {
+      if (freshCount > 0) {
+        writeJson(storage, ACTIVITY_KEY, {
+          version: parsed.version ?? 1,
+          viewerHandle: parsed.viewerHandle,
+          savedAt: Date.now(),
+          entries: fresh
+        });
+      } else {
+        try {
+          storage.removeItem(ACTIVITY_KEY);
+        } catch {
+        }
+      }
+    }
+    return fresh;
   }
   function saveActivity(storage = defaultStorage(), viewerHandle = "", entries = {}) {
     if (!storage) return false;
@@ -2338,8 +2356,7 @@
     }
     const legacy = tweet.legacy || {};
     const authorId = String(tweet.core?.user_results?.result?.rest_id || "");
-    const isRetweet = Boolean(legacy.retweeted_status_result);
-    const relevant = isRetweet || !userId || authorId === String(userId);
+    const relevant = !userId || authorId === String(userId);
     if (!relevant) return { relevant: false, at: null };
     return { relevant: true, at: parseTwitterDate(legacy.created_at) };
   }
@@ -2585,7 +2602,9 @@
         if (!user || !user.handle) return false;
         if (force) return true;
         const cached = activityEntryFor(cache, user);
-        if (cached?.reason === "template") return true;
+        if (cached?.reason === "template" || cached?.state === "unknown") {
+          return true;
+        }
         return !isActivityFresh(cached, clock());
       }
     );
@@ -2621,6 +2640,8 @@
             source: currentSource
           });
           await sleepFn(wait);
+          if (shouldPause?.()) await waitWhilePaused();
+          check();
         }
         if (pauseEvery > 0 && requests % pauseEvery === 0 && pauseMs > 0) {
           onProgress({
@@ -2631,6 +2652,8 @@
             source: currentSource
           });
           await sleepFn(pauseMs);
+          if (shouldPause?.()) await waitWhilePaused();
+          check();
         }
       }
       requests += 1;
@@ -3141,6 +3164,7 @@
 #${APP_ID} .ux-results-links { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none; }
 #${APP_ID} .ux-link { color: var(--ux-text); font-size: 10.5px; font-weight: 600; padding: 3px 0; white-space: nowrap; text-decoration: underline; text-underline-offset: 2px; }
 #${APP_ID} .ux-link:hover { text-decoration-thickness: 2px; }
+#${APP_ID} .ux-link:disabled { opacity: .42; cursor: not-allowed; text-decoration: none; }
 #${APP_ID} .ux-warning {
   display: flex; gap: 7px; align-items: flex-start;
   margin-top: 10px; padding: 7px 0 7px 9px;
@@ -3417,8 +3441,9 @@
   }
   function selectedUsers(state) {
     const selected = setOf(state.selected);
+    const visible = new Set(getDisplayUsers(state).map(keyOf));
     return (state.users || []).filter(
-      (user) => user && user.handle && selected.has(keyOf(user))
+      (user) => user && user.handle && selected.has(keyOf(user)) && visible.has(keyOf(user))
     );
   }
   function visibleSelectedCount(state) {
@@ -3614,7 +3639,9 @@
   function renderActionbar(state, t, { locked = false } = {}) {
     const users = getDisplayUsers(state);
     const selected = setOf(state.selected);
-    const selectedCount = users.filter((user) => selected.has(keyOf(user))).length;
+    const selectedList = users.filter((user) => selected.has(keyOf(user)));
+    const selectedCount = selectedList.length;
+    const unknownRelation = state.activeTab === "inactive" && selectedList.some((user) => typeof user.followsViewer !== "boolean");
     const allSelected = users.length > 0 && users.every((user) => selected.has(keyOf(user)));
     const someSelected = users.some((user) => selected.has(keyOf(user)));
     return `<div class="ux-actionbar" data-actionbar>
@@ -3628,7 +3655,7 @@
     <button class="ux-btn ux-btn-ghost" data-action="copy-all">${escapeHTML(
       t("copyAll")
     )}</button>
-    <button class="ux-btn ux-btn-primary" data-action="unfollow" ${selectedCount === 0 || state.unverified || locked ? "disabled" : ""} data-unfollow-label>${escapeHTML(t("unfollow"))}${selectedCount ? ` (${selectedCount})` : ""}</button>
+    <button class="ux-btn ux-btn-primary" data-action="unfollow" ${selectedCount === 0 || state.unverified || unknownRelation || locked ? "disabled" : ""} data-unfollow-label>${escapeHTML(t("unfollow"))}${selectedCount ? ` (${selectedCount})` : ""}</button>
   </div>`;
   }
   function renderUnknownRow(user, state, t) {
@@ -3764,6 +3791,14 @@
         )}</span></div>`
       );
     }
+    const errorActions = state.activity?.status === "error" ? `<div class="ux-card-actions" data-activity-error-actions>
+        <button class="ux-btn ux-btn-primary" data-action="start-activity">${escapeHTML(
+      t("retry")
+    )}</button>
+        <button class="ux-btn ux-btn-ghost" data-action="tab" data-tab="nonFollowers">${escapeHTML(
+      t("goBack")
+    )}</button>
+      </div>` : "";
     const headerActions = hasUsers ? `<div class="ux-results-links">
       ${scanning ? "" : `<button class="ux-link" data-action="start-activity">${escapeHTML(
       scanLabel
@@ -3797,6 +3832,7 @@
       return `<div class="ux-results-body ux-activity" data-activity-view>
       ${header}
       ${warnings.join("")}
+      ${errorActions}
       <div class="ux-activity-intro">
         <p>${escapeHTML(
         t("activityBody", {
@@ -3837,6 +3873,7 @@
     ${scanning ? renderActivityProgress(state, t) : subline}
     ${scanning ? "" : lastCheck}
     ${warnings.join("")}
+    ${errorActions}
     ${scanning ? "" : renderControls(state, t)}
     <div class="ux-list" data-activity-list data-signature="${escapeAttr(
       activityListSignature(state, users)
@@ -3861,6 +3898,7 @@
     const users = getDisplayUsers(state, "nonFollowers");
     const hidden = setOf(state.hidden);
     const selectedCount = visibleSelectedCount(state);
+    const activityRunning = state.active?.job === "activity" && state.active?.running;
     const warnings = [];
     if (state.unverified) {
       warnings.push(
@@ -3898,9 +3936,7 @@
         ${state.partial && state.checkpoint ? `<button class="ux-link" data-action="resume">${escapeHTML(
       t("resumeAfter")
     )}</button>` : ""}
-        <button class="ux-link" data-action="rescan">${escapeHTML(
-      t("rescan")
-    )}</button>
+        <button class="ux-link" data-action="rescan" ${activityRunning ? "disabled" : ""}>${escapeHTML(t("rescan"))}</button>
       </div>
     </div>
     <div class="ux-subline">
@@ -3919,7 +3955,7 @@
     ${warnings.join("")}
     ${renderControls(state, t)}
     <div class="ux-list" data-list>${users.length ? users.map((user) => renderRow(user, state)).join("") : renderEmpty(state, t)}</div>
-    ${renderActionbar(state, t)}
+    ${renderActionbar(state, t, { locked: activityRunning })}
   </div>`;
   }
   function renderResultsView(state) {
@@ -4738,9 +4774,12 @@
         toggle.textContent = paused ? t()("resume") : t()("pause");
       }
       const selectedCount = visibleSelectedCount(state);
+      const selectedSet = setOf(state.selected);
+      const selectedList = users.filter((user) => selectedSet.has(keyOf(user)));
+      const unknownRelation = state.activeTab === "inactive" && selectedList.some((user) => typeof user.followsViewer !== "boolean");
       const unfollow = root.querySelector('[data-action="unfollow"]');
       if (unfollow) {
-        unfollow.disabled = selectedCount === 0 || Boolean(state.unverified) || state.activity?.status === "scanning" || state.activity?.status === "paused";
+        unfollow.disabled = selectedCount === 0 || Boolean(state.unverified) || unknownRelation || state.activity?.status === "scanning" || state.activity?.status === "paused";
         unfollow.textContent = `${t()("unfollow")}${selectedCount ? ` (${selectedCount})` : ""}`;
       }
       const selectAll = root.querySelector("[data-select-all]");
@@ -4787,7 +4826,8 @@
       }
       const unfollow = root.querySelector('[data-action="unfollow"]');
       if (unfollow) {
-        unfollow.disabled = selectedCount === 0 || Boolean(state.unverified);
+        const activityRunning = state.active?.job === "activity" && state.active?.running;
+        unfollow.disabled = selectedCount === 0 || Boolean(state.unverified) || Boolean(activityRunning);
         unfollow.textContent = `${t()("unfollow")}${selectedCount ? ` (${selectedCount})` : ""}`;
       }
       const selectAll = root.querySelector("[data-select-all]");
@@ -5857,6 +5897,7 @@
     function finishScan(result) {
       if (state.disposed) return;
       state.users = mergeScan(state.users, result.users || []);
+      refreshActivityCounters(state);
       state.source = result.source || state.source;
       state.scan = {
         ...state.scan,
@@ -6171,7 +6212,7 @@
       const candidates = state.users.filter((user) => {
         if (!user || !user.handle) return false;
         const entry = activityEntryFor(state.activityEntries, user);
-        if (entry?.reason === "template") return true;
+        if (entry?.reason === "template" || entry?.state === "unknown") return true;
         return !isActivityFresh(entry);
       });
       if (!candidates.length) {
@@ -6179,12 +6220,14 @@
         state.mode = "results";
         state.activityScan = null;
         clearActivityScan(void 0);
+        pruneSelection(state);
         hydrateActivityCounters(state);
         ui.render();
         ui.toast(t()("activityFresh"));
         return;
       }
       state.activeTab = "inactive";
+      pruneSelection(state);
       state.mode = "results";
       state.error = "";
       state.paused = false;
@@ -6320,6 +6363,7 @@
         state.active.wake = null;
         state.active.job = null;
         state.paused = false;
+        pruneSelection(state);
         ui.render();
         if (!templateStopped) {
           ui.toast(
@@ -6361,6 +6405,7 @@
           }
         }
         persistActivity(true);
+        pruneSelection(state);
         ui.render();
       }
     }
@@ -6387,8 +6432,9 @@
       }
       const session = ensureSession();
       if (!session) return;
+      const visibleKeys = new Set(getDisplayUsers(state).map(keyOf));
       const selected = state.users.filter(
-        (user) => user && user.handle && state.selected instanceof Set && state.selected.has(keyOf(user))
+        (user) => user && user.handle && state.selected instanceof Set && state.selected.has(keyOf(user)) && visibleKeys.has(keyOf(user))
       );
       if (!selected.length) {
         ui.toast(t()("noSelection"));
@@ -6571,6 +6617,7 @@
           ACTIVITY_MAX_DAYS
         );
         if (!state.active.running) refreshActivityCounters(state);
+        pruneSelection(state);
         persist(state);
         ui.toast(t()("settingsSaved"));
         return;

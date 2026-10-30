@@ -151,7 +151,26 @@ export function loadActivity(storage = defaultStorage(), viewerHandle = "") {
     return {};
   }
   if (!sameViewer(viewerHandle, parsed.viewerHandle)) return {};
-  return freshActivityEntries(parsed.entries);
+  const fresh = freshActivityEntries(parsed.entries);
+  const storedCount = Object.keys(parsed.entries).length;
+  const freshCount = Object.keys(fresh).length;
+  if (freshCount !== storedCount) {
+    if (freshCount > 0) {
+      writeJson(storage, ACTIVITY_KEY, {
+        version: parsed.version ?? 1,
+        viewerHandle: parsed.viewerHandle,
+        savedAt: Date.now(),
+        entries: fresh,
+      });
+    } else {
+      try {
+        storage.removeItem(ACTIVITY_KEY);
+      } catch {
+        // Ignore storage failures; loading is best-effort.
+      }
+    }
+  }
+  return fresh;
 }
 
 export function saveActivity(

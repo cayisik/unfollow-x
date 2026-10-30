@@ -254,6 +254,7 @@ export const CSS = `
 #${APP_ID} .ux-results-links { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none; }
 #${APP_ID} .ux-link { color: var(--ux-text); font-size: 10.5px; font-weight: 600; padding: 3px 0; white-space: nowrap; text-decoration: underline; text-underline-offset: 2px; }
 #${APP_ID} .ux-link:hover { text-decoration-thickness: 2px; }
+#${APP_ID} .ux-link:disabled { opacity: .42; cursor: not-allowed; text-decoration: none; }
 #${APP_ID} .ux-warning {
   display: flex; gap: 7px; align-items: flex-start;
   margin-top: 10px; padding: 7px 0 7px 9px;
@@ -557,8 +558,13 @@ export function pruneSelection(state) {
 
 function selectedUsers(state) {
   const selected = setOf(state.selected);
+  const visible = new Set(getDisplayUsers(state).map(keyOf));
   return (state.users || []).filter(
-    (user) => user && user.handle && selected.has(keyOf(user))
+    (user) =>
+      user &&
+      user.handle &&
+      selected.has(keyOf(user)) &&
+      visible.has(keyOf(user))
   );
 }
 
@@ -790,7 +796,11 @@ function renderControls(state, t) {
 function renderActionbar(state, t, { locked = false } = {}) {
   const users = getDisplayUsers(state);
   const selected = setOf(state.selected);
-  const selectedCount = users.filter((user) => selected.has(keyOf(user))).length;
+  const selectedList = users.filter((user) => selected.has(keyOf(user)));
+  const selectedCount = selectedList.length;
+  const unknownRelation =
+    state.activeTab === "inactive" &&
+    selectedList.some((user) => typeof user.followsViewer !== "boolean");
   const allSelected =
     users.length > 0 && users.every((user) => selected.has(keyOf(user)));
   const someSelected = users.some((user) => selected.has(keyOf(user)));
@@ -808,7 +818,9 @@ function renderActionbar(state, t, { locked = false } = {}) {
       t("copyAll")
     )}</button>
     <button class="ux-btn ux-btn-primary" data-action="unfollow" ${
-      selectedCount === 0 || state.unverified || locked ? "disabled" : ""
+      selectedCount === 0 || state.unverified || unknownRelation || locked
+        ? "disabled"
+        : ""
     } data-unfollow-label>${escapeHTML(t("unfollow"))}${
       selectedCount ? ` (${selectedCount})` : ""
     }</button>
@@ -957,6 +969,17 @@ function renderActivityView(state, t) {
       )}</span></div>`
     );
   }
+  const errorActions =
+    state.activity?.status === "error"
+      ? `<div class="ux-card-actions" data-activity-error-actions>
+        <button class="ux-btn ux-btn-primary" data-action="start-activity">${escapeHTML(
+          t("retry")
+        )}</button>
+        <button class="ux-btn ux-btn-ghost" data-action="tab" data-tab="nonFollowers">${escapeHTML(
+          t("goBack")
+        )}</button>
+      </div>`
+      : "";
 
   const headerActions = hasUsers
     ? `<div class="ux-results-links">
@@ -1004,6 +1027,7 @@ function renderActivityView(state, t) {
     return `<div class="ux-results-body ux-activity" data-activity-view>
       ${header}
       ${warnings.join("")}
+      ${errorActions}
       <div class="ux-activity-intro">
         <p>${escapeHTML(
           t("activityBody", {
@@ -1051,6 +1075,7 @@ function renderActivityView(state, t) {
     ${scanning ? renderActivityProgress(state, t) : subline}
     ${scanning ? "" : lastCheck}
     ${warnings.join("")}
+    ${errorActions}
     ${scanning ? "" : renderControls(state, t)}
     <div class="ux-list" data-activity-list data-signature="${escapeAttr(
       activityListSignature(state, users)
@@ -1084,6 +1109,8 @@ function renderNonFollowersView(state, t) {
   const users = getDisplayUsers(state, "nonFollowers");
   const hidden = setOf(state.hidden);
   const selectedCount = visibleSelectedCount(state);
+  const activityRunning =
+    state.active?.job === "activity" && state.active?.running;
   const warnings = [];
   if (state.unverified) {
     warnings.push(
@@ -1125,9 +1152,9 @@ function renderNonFollowersView(state, t) {
               )}</button>`
             : ""
         }
-        <button class="ux-link" data-action="rescan">${escapeHTML(
-          t("rescan")
-        )}</button>
+        <button class="ux-link" data-action="rescan" ${
+          activityRunning ? "disabled" : ""
+        }>${escapeHTML(t("rescan"))}</button>
       </div>
     </div>
     <div class="ux-subline">
@@ -1148,7 +1175,7 @@ function renderNonFollowersView(state, t) {
     <div class="ux-list" data-list>${
       users.length ? users.map((user) => renderRow(user, state)).join("") : renderEmpty(state, t)
     }</div>
-    ${renderActionbar(state, t)}
+    ${renderActionbar(state, t, { locked: activityRunning })}
   </div>`;
 }
 
@@ -2093,11 +2120,17 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
       toggle.textContent = paused ? t()("resume") : t()("pause");
     }
     const selectedCount = visibleSelectedCount(state);
+    const selectedSet = setOf(state.selected);
+    const selectedList = users.filter((user) => selectedSet.has(keyOf(user)));
+    const unknownRelation =
+      state.activeTab === "inactive" &&
+      selectedList.some((user) => typeof user.followsViewer !== "boolean");
     const unfollow = root.querySelector('[data-action="unfollow"]');
     if (unfollow) {
       unfollow.disabled =
         selectedCount === 0 ||
         Boolean(state.unverified) ||
+        unknownRelation ||
         state.activity?.status === "scanning" ||
         state.activity?.status === "paused";
       unfollow.textContent = `${t()("unfollow")}${
@@ -2155,7 +2188,12 @@ export function mountUI({ state, onAction = () => {}, onChange = () => {} } = {}
     }
     const unfollow = root.querySelector('[data-action="unfollow"]');
     if (unfollow) {
-      unfollow.disabled = selectedCount === 0 || Boolean(state.unverified);
+      const activityRunning =
+        state.active?.job === "activity" && state.active?.running;
+      unfollow.disabled =
+        selectedCount === 0 ||
+        Boolean(state.unverified) ||
+        Boolean(activityRunning);
       unfollow.textContent = `${t()("unfollow")}${
         selectedCount ? ` (${selectedCount})` : ""
       }`;
