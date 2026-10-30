@@ -138,3 +138,62 @@ test("activity scan checkpoint is viewer-bound and fresh", () => {
   assert.equal(clearActivityScan(storage), true);
   assert.equal(loadActivityScan(storage, "me"), null);
 });
+
+test("activity load prunes stale entries already on disk", () => {
+  const storage = memoryStorage();
+  const now = Date.now();
+  storage.setItem(
+    "ux_activity_v1",
+    JSON.stringify({
+      version: 1,
+      viewerHandle: "me",
+      savedAt: now,
+      entries: {
+        fresh: { id: "fresh", checkedAt: now },
+        stale: { id: "stale", checkedAt: now - 25 * 60 * 60 * 1000 },
+      },
+    })
+  );
+  assert.deepEqual(Object.keys(loadActivity(storage, "me")), ["fresh"]);
+});
+
+test("activity load drops entries checked in the future", () => {
+  const storage = memoryStorage();
+  const now = Date.now();
+  storage.setItem(
+    "ux_activity_v1",
+    JSON.stringify({
+      version: 1,
+      viewerHandle: "me",
+      savedAt: now,
+      entries: {
+        future: { id: "future", checkedAt: now + 61_000 },
+      },
+    })
+  );
+  assert.deepEqual(loadActivity(storage, "me"), {});
+});
+
+test("activity scan checkpoint expires after 24h", () => {
+  const storage = memoryStorage();
+  const old = Date.now() - 25 * 60 * 60 * 1000;
+  storage.setItem(
+    "ux_activity_scan_v1",
+    JSON.stringify({
+      viewerHandle: "me",
+      startedAt: old,
+      checked: 10,
+      total: 20,
+      complete: false,
+      savedAt: old,
+    })
+  );
+  assert.equal(loadActivityScan(storage, "me"), null);
+});
+
+test("saving activity requires a viewer handle", () => {
+  const storage = memoryStorage();
+  const entry = { id: "1", checkedAt: Date.now() };
+  assert.equal(saveActivity(storage, "", { "1": entry }), false);
+  assert.deepEqual(loadActivity(storage, ""), {});
+});

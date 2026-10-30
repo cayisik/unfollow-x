@@ -75,9 +75,9 @@ export function persistState(storage = defaultStorage(), partial = {}) {
   return writeJson(storage, STORAGE_KEY, next);
 }
 
-function isFresh(savedAt) {
+function isFresh(savedAt, ttl = TTL) {
   const stamp = Number(savedAt);
-  return Number.isFinite(stamp) && Date.now() - stamp < TTL && stamp <= Date.now() + 60_000;
+  return Number.isFinite(stamp) && Date.now() - stamp < ttl && stamp <= Date.now() + 60_000;
 }
 
 function sameViewer(expected, actual) {
@@ -128,6 +128,7 @@ export function saveLastScan(storage = defaultStorage(), snapshot = {}) {
 }
 
 function isFreshActivity(entry, now = Date.now()) {
+  // Mirrors isActivityFresh in src/activity.js; keep the two in sync.
   const checkedAt = Number(entry?.checkedAt);
   return (
     Number.isFinite(checkedAt) &&
@@ -159,6 +160,7 @@ export function saveActivity(
   entries = {}
 ) {
   if (!storage) return false;
+  if (!viewerHandle) return false;
   const now = Date.now();
   return writeJson(storage, ACTIVITY_KEY, {
     version: 1,
@@ -184,7 +186,7 @@ export function loadActivityScan(
 ) {
   const scan = readJson(storage, ACTIVITY_SCAN_KEY);
   if (!scan) return null;
-  if (!isFresh(scan.savedAt)) return null;
+  if (!isFresh(scan.savedAt, ACTIVITY_TTL)) return null;
   if (!sameViewer(viewerHandle, scan.viewerHandle)) return null;
   return scan;
 }
