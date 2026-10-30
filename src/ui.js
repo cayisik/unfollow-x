@@ -483,27 +483,10 @@ export function activityStatus(state, user) {
 }
 
 export function getUnknownActivityUsers(state) {
-  const filters = { ...DEFAULT_FILTERS, ...(state.filters || {}) };
-  const hidden = setOf(state.hidden);
-  const search = String(state.search || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^@/, "");
-  return (state.users || [])
-    .filter((user) => user && user.handle)
-    .filter((user) => activityStatus(state, user) === "unknown")
-    .filter((user) => filters.showHidden || !isHidden(user, hidden))
-    .filter((user) => filters.verified || !user.verified)
-    .filter((user) => filters.protected || !user.protected)
-    .filter((user) => filters.noAvatar || !isDefaultAvatar(user))
-    .filter((user) => {
-      if (!search) return true;
-      return (
-        user.handle.toLowerCase().includes(search) ||
-        String(user.name || "").toLowerCase().includes(search)
-      );
-    })
-    .sort((a, b) => a.handle.localeCompare(b.handle));
+  return visibleUsers(
+    state,
+    (user) => activityStatus(state, user) === "unknown"
+  ).sort((a, b) => a.handle.localeCompare(b.handle));
 }
 
 function hiddenKeys(user) {
@@ -518,22 +501,16 @@ function isHidden(user, hidden) {
   return hiddenKeys(user).some((key) => hidden.has(key));
 }
 
-export function getDisplayUsers(
-  state,
-  tab = state.activeTab || "nonFollowers"
-) {
+function visibleUsers(state, predicate = () => true) {
   const filters = { ...DEFAULT_FILTERS, ...(state.filters || {}) };
   const hidden = setOf(state.hidden);
   const search = String(state.search || "")
     .trim()
     .toLowerCase()
     .replace(/^@/, "");
-  const list = (state.users || [])
+  return (state.users || [])
     .filter((user) => user && user.handle)
-    .filter((user) => {
-      if (tab === "inactive") return activityStatus(state, user) === "inactive";
-      return user.followsViewer !== true;
-    })
+    .filter(predicate)
     .filter((user) => filters.showHidden || !isHidden(user, hidden))
     .filter((user) => filters.verified || !user.verified)
     .filter((user) => filters.protected || !user.protected)
@@ -545,6 +522,16 @@ export function getDisplayUsers(
         String(user.name || "").toLowerCase().includes(search)
       );
     });
+}
+
+export function getDisplayUsers(
+  state,
+  tab = state.activeTab || "nonFollowers"
+) {
+  const list = visibleUsers(state, (user) => {
+    if (tab === "inactive") return activityStatus(state, user) === "inactive";
+    return user.followsViewer !== true;
+  });
   return list.sort((a, b) => {
     if (tab !== "inactive") return a.handle.localeCompare(b.handle);
     const aEntry = getActivityEntry(state, a);
@@ -724,8 +711,7 @@ function reasonLabel(reason, t) {
   if (reason === "no-id") return t("activityReasonNoId");
   if (reason === "not-found") return t("activityReasonNotFound");
   if (reason === "template") return t("activityReasonTemplate");
-  if (reason === "protected") return t("activityReasonProtected");
-  if (reason === "rate") return t("activityReasonRate");
+  // "parse" and any other unknown reason surface as unavailable.
   return t("activityReasonUnavailable");
 }
 
@@ -865,6 +851,7 @@ function renderActivityProgress(state, t) {
   const activity = state.activity || {};
   const checked = Number(activity.checked) || 0;
   const total = Number(activity.total) || 0;
+  const inactive = Number(activity.inactive) || 0;
   const percent = total ? clamp((checked / total) * 100, 0, 100) : 0;
   const paused = activity.status === "paused";
   return `<div class="ux-card ux-activity-progress">
@@ -882,7 +869,9 @@ function renderActivityProgress(state, t) {
       t("activityProgress", { checked, total })
     )}</span></div>
     <div class="ux-card-line"><span class="ux-muted" data-activity-found>${escapeHTML(
-      t("activityFound", { count: Number(activity.inactive) || 0 })
+      t(inactive === 1 ? "activityFoundOne" : "activityFound", {
+        count: inactive,
+      })
     )}</span><span class="ux-muted" data-activity-unknown-live>${escapeHTML(
       t("activityUnknownCount", { count: Number(activity.unknown) || 0 })
     )}</span></div>
@@ -905,12 +894,13 @@ function renderActivityProgress(state, t) {
 function renderActivityView(state, t) {
   const users = getDisplayUsers(state, "inactive");
   const hasUsers = (state.users || []).some((user) => user && user.handle);
-  const hasData = Object.values(state.activityEntries || {}).some((entry) =>
-    isActivityFresh(entry)
+  const hasData = (state.users || []).some(
+    (user) => user && user.handle && isActivityFresh(getActivityEntry(state, user))
   );
   const scanning =
     state.activity?.status === "scanning" || state.activity?.status === "paused";
   const partial = Boolean(state.activityScan && !state.activityScan.complete);
+  const scanLabel = partial ? t("resume") : hasData ? t("rescan") : t("activityStart");
   const warnings = [];
   if (state.unverified) {
     warnings.push(
@@ -941,6 +931,25 @@ function renderActivityView(state, t) {
     );
   }
 
+  const headerActions = hasUsers
+    ? `<div class="ux-results-links">
+      ${
+        scanning
+          ? ""
+          : `<button class="ux-link" data-action="start-activity">${escapeHTML(
+              scanLabel
+            )}</button>`
+      }
+      ${
+        hasData && !scanning
+          ? `<button class="ux-link" data-action="clear-activity">${escapeHTML(
+              t("activityClear")
+            )}</button>`
+          : ""
+      }
+    </div>`
+    : "";
+
   const header = `<div class="ux-results-head">
     <div>
       <span class="ux-eyebrow">${escapeHTML(t("activityKicker"))}</span>
@@ -951,22 +960,7 @@ function renderActivityView(state, t) {
         )}</span>
       </div>
     </div>
-    <div class="ux-results-links">
-      ${
-        scanning
-          ? ""
-          : `<button class="ux-link" data-action="start-activity">${escapeHTML(
-              partial ? t("resume") : hasData ? t("rescan") : t("activityStart")
-            )}</button>`
-      }
-      ${
-        hasData && !scanning
-          ? `<button class="ux-link" data-action="clear-activity">${escapeHTML(
-              t("activityClear")
-            )}</button>`
-          : ""
-      }
-    </div>
+    ${headerActions}
   </div>`;
 
   if (!hasUsers) {
@@ -986,7 +980,7 @@ function renderActivityView(state, t) {
       <div class="ux-activity-intro">
         <p>${escapeHTML(t("activityBody"))}</p>
         <button class="ux-btn ux-btn-primary ux-btn-block" data-action="start-activity">${escapeHTML(
-          t("activityStart")
+          scanLabel
         )}</button>
       </div>
     </div>`;

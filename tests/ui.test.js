@@ -10,6 +10,9 @@ import {
   renderRow,
   renderUnfollowView,
   getDisplayUsers,
+  getActivityEntry,
+  getUnknownActivityUsers,
+  activityStatus,
   pruneSelection,
   settingsHTML,
   readSettings,
@@ -435,12 +438,6 @@ test("user metadata styles do not stretch inline badges", () => {
   assert.doesNotMatch(CSS, /\.ux-user span\s*\{/);
 });
 
-import {
-  getActivityEntry,
-  getUnknownActivityUsers,
-  activityStatus,
-} from "../src/ui.js";
-
 test("inactive tab lists only inactive users, never-posted first", () => {
   const s = state();
   s.activeTab = "inactive";
@@ -536,4 +533,169 @@ test("passive pill shows the inactive count", () => {
   };
   s.mode = "results";
   assert.match(pillLabel(s), /inactive/);
+});
+
+test("inactive view asks for a following scan when the list is empty", () => {
+  const s = state();
+  s.users = [];
+  s.activeTab = "inactive";
+  const html = renderResultsView(s);
+  assert.match(html, /Scan your following list first/);
+  assert.doesNotMatch(html, /data-action="start-activity"/);
+});
+
+test("scanning activity view shows live progress and no actionbar", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activity = {
+    ...s.activity,
+    status: "scanning",
+    checked: 3,
+    total: 10,
+    inactive: 1,
+    current: "alice",
+    source: "lookup",
+  };
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const html = renderResultsView(s);
+  assert.match(html, /3 \/ 10 checked/);
+  assert.match(html, /Now: @alice/);
+  assert.match(html, /Batch/);
+  assert.match(html, /data-activity-found>1 inactive account</);
+  assert.match(html, /data-action="pause-activity"/);
+  assert.match(html, /data-action="cancel-activity"/);
+  assert.doesNotMatch(html, /data-actionbar/);
+});
+
+test("paused activity view offers resume and cancel", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activity = {
+    ...s.activity,
+    status: "paused",
+    checked: 3,
+    total: 10,
+    current: "alice",
+    source: "lookup",
+  };
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const html = renderResultsView(s);
+  assert.match(html, /Paused/);
+  assert.match(html, /data-action="resume-activity"/);
+  assert.doesNotMatch(html, /data-action="pause-activity"/);
+});
+
+test("partial activity view warns and labels both scan actions as resume", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityScan = { complete: false, checked: 2 };
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const html = renderResultsView(s);
+  assert.match(html, /2 accounts checked\. Continue to finish\./);
+  assert.match(html, /data-action="start-activity">Resume</);
+  s.activityEntries = {};
+  const intro = renderResultsView(s);
+  assert.match(intro, /data-action="start-activity">Resume</);
+  assert.doesNotMatch(intro, /Start activity scan/);
+});
+
+test("activity errors surface as a warning", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activity = { ...s.activity, error: "Rate limited" };
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const html = renderResultsView(s);
+  assert.match(html, /Rate limited/);
+});
+
+test("completed activity view reports zero inactive accounts", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: Date.now() - 86400000,
+      checkedAt: Date.now(),
+    },
+  };
+  const html = renderResultsView(s);
+  assert.match(html, /No inactive accounts in this window/);
+  assert.doesNotMatch(html, /data-row="1"/);
+});
+
+test("stale activity entries do not leak into the inactive view", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: Date.now() - 86400000,
+      checkedAt: Date.now(),
+    },
+    "2": {
+      id: "2",
+      handle: "bob",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now() - 2 * 86400000,
+    },
+  };
+  const html = renderResultsView(s);
+  assert.doesNotMatch(html, /data-row="2"/);
+  assert.doesNotMatch(html, /No posts yet/);
+  assert.match(html, /No inactive accounts in this window/);
+});
+
+test("orphan activity entries do not satisfy the activity data check", () => {
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "99": {
+      id: "99",
+      handle: "dave",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+    },
+  };
+  const html = renderResultsView(s);
+  assert.match(html, /data-action="start-activity">Start activity scan</);
+  assert.doesNotMatch(html, /data-action="clear-activity"/);
+  assert.doesNotMatch(html, /data-row="99"/);
 });
