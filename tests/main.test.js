@@ -898,7 +898,7 @@ test("boot restores the template error from a saved activity scan", () => {
     );
     state = boot();
     assert.equal(state.activity.status, "error");
-    assert.match(state.activity.error, /Replies/);
+    assert.match(state.activity.error, /reload the page/i);
     assert.equal(state.activityScan.stopped, "template");
   } finally {
     state?.cleanup();
@@ -1168,7 +1168,7 @@ test("activity scan keeps template-broken results as a retryable error", async (
       tick();
     });
     assert.equal(state.activity.status, "error");
-    assert.match(state.activity.error, /Replies/);
+    assert.match(state.activity.error, /reload the page/i);
     assert.equal(state.activityEntries["1"].reason, "template");
     assert.equal(state.activityEntries["2"].reason, "template");
     assert.equal(state.activityScan.stopped, "template");

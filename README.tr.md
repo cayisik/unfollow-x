@@ -104,7 +104,7 @@ Panel görünmezse x.com üzerinde olduğunu kontrol et ve Console'da hata olup 
 - **Aktivite taramasını başlat** takip ettiğin tüm hesapları kontrol eder. Tarama otomatik başlamaz.
 - X'in toplu kullanıcı kontrolü 10 hesap/istek olarak yapılır; istekler arasında 1,5–2,5 saniye beklenir ve her 10 istekte yaklaşık 10 saniye duraklanır.
 - Toplu kontrol kullanılamazsa hesap başına `users/show` sorgusuna geçilir; bu da kullanılamıyor veya belirsizse hesap başına `UserTweetsAndReplies` sorgusu kullanılır. İki yol da daha yavaştır ve arayüzde **Profil** etiketiyle gösterilir.
-- Birkaç bilinen `UserTweetsAndReplies` sorgu kimliği yalnızca canlı bir istek yakalanamadığında denenir; yakalanan şablon olduğu gibi kullanılır. Bir profilin Yanıtlar sekmesini açmak canlı sorguyu yakaladığı için hâlâ en güvenilir yoldur.
+- Araç, canlı `UserTweetsAndReplies` sorgu kimliğini ve özellik bayraklarını X'in kendi web kabuğundan çözer ve her istek için `x-client-transaction-id` başlığını üretir. Bir profilin Yanıtlar sekmesinden yakalanmış istek varsa önce o kullanılır.
 - Pasiflik penceresinde gönderi, retweet veya yanıt yoksa hesap pasiftir. Pencere Ayarlar'dan **1–365 gün** arasında yapılandırılabilir (varsayılan **30**). Hiç gönderisi olmayanlar da pasif sayılır.
 - Veri okunamayan hesaplar pasif sayılmaz; **Kontrol edilemedi** bölümünde gösterilir ve takipten çıkarılamaz.
 - Pasif sekmeden takipten çıkarma aynı güvenli kuyruğu kullanır. Seçilenler arasında seni takip eden varsa onay penceresi uyarır.
@@ -223,11 +223,11 @@ Doğru olabilir: taranan listedeki herkes seni geri takip ediyor veya liste çok
 
 ### Sorgu kimliği / biçim hataları veya API yolu başarısız
 
-X, GraphQL sorgu kimliklerini, özellik bayraklarını ve işlem kimliği gereksinimlerini haber vermeden döndürür. Script önce yerleşik şablonlara, sonra DOM taramasına geçer. Tarama sırasında sekmeyi görünür tut. Tüm yollar başarısız olursa X büyük olasılıkla ön yüzünü değiştirmiştir; `src/dom.js` içindeki DOM seçicilerinin güncellenmesi gerekebilir.
+X, GraphQL sorgu kimliklerini, özellik bayraklarını ve işlem kimliği gereksinimlerini haber vermeden değiştirir. Tarama başlarken script canlı sorgu kimliğini ve özellik anahtarlarını X'in kendi web kabuğundan (`/i/jf/`) okur ve işlem kimliğini üretir; rutin değişimler için güncelleme gerekmez. X isteği yine reddederse sayfayı yenileyip tekrar dene. Tüm yollar başarısız olursa X büyük olasılıkla ön yüzünü değiştirmiştir; `src/dom.js` içindeki DOM seçicilerinin güncellenmesi gerekebilir.
 
 ### `x-client-transaction-id` reddedildi
 
-Script bir işlem kimliğini yalnızca X'ten yakaladıysa kopyalar. X isteği reddederse API yolu DOM yedeğine düşer. Sayfayı yenile, Takip Edilenler sayfasını ziyaret et ve yeniden taramadan önce X'in kendi isteğini yapmasına izin ver.
+Script her istek için X'in kabuğundan yeni bir işlem kimliği üretir; X aynı çağrıyı zaten yaptıysa yakalanan kimliği kullanır. X isteği reddederse aktivite taraması tekrar denenebilir bir hatayla durur ve API yolu DOM yedeğine düşer. Sayfayı yenileyip tekrar dene.
 
 ### DOM taraması hiçbir şey bulamıyor
 

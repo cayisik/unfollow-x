@@ -56,6 +56,7 @@ import {
   pruneSelection,
 } from "./ui.js";
 import { observeXAppearance } from "./theme.js";
+import { createRuntimeClient } from "./runtime.js";
 import {
   runActivityScan,
   classifyActivity,
@@ -64,6 +65,16 @@ import {
 } from "./activity.js";
 
 let ACTIVE = null;
+let RUNTIME = null;
+let RUNTIME_ORIGIN = "";
+
+function runtimeFor(origin) {
+  if (!RUNTIME || RUNTIME_ORIGIN !== origin) {
+    RUNTIME = createRuntimeClient({ origin });
+    RUNTIME_ORIGIN = origin;
+  }
+  return RUNTIME;
+}
 
 export function mergeScan(existing, incoming) {
   const byHandle = new Map();
@@ -1158,6 +1169,36 @@ export function boot() {
     lastActivityPersistAt = 0;
     ui.render();
 
+    const runtime = runtimeFor(session.origin);
+    const templates = [];
+    const captured = getCapturedActivity();
+    if (captured) templates.push(captured);
+    try {
+      const operation = await runtime.getOperation("UserTweetsAndReplies");
+      templates.push({
+        url: `${session.origin}/i/api/graphql/${operation.queryId}/UserTweetsAndReplies`,
+        method: "GET",
+        headers: {},
+        body: "",
+        variables: {
+          userId: "",
+          count: 20,
+          includePromotedContent: false,
+          withCommunity: true,
+          withVoice: true,
+          withV2Timeline: true,
+        },
+        features: operation.features,
+        fieldToggles: operation.fieldToggles,
+        queryId: operation.queryId,
+        operationName: "UserTweetsAndReplies",
+        capturedAt: 0,
+        responseSample: null,
+      });
+    } catch {
+      // Fall back to the built-in query ids when the live shell is unreachable.
+    }
+
     const onResult = (user, entry) => {
       if (state.disposed) return;
       const key = String(entry.id || user.handle.toLowerCase());
@@ -1225,7 +1266,9 @@ export function boot() {
         days: state.activityDays,
         csrf: session.csrf,
         origin: session.origin,
-        template: getCapturedActivity(),
+        templates,
+        transactionProvider: (method, path) =>
+          runtime.getTransactionId(method, path),
         fetchImpl: globalThis.fetch,
         sleepFn: (ms) => activeSleep(ms),
         random: Math.random,
@@ -1249,6 +1292,7 @@ export function boot() {
       state.activity.source = result.source || state.activity.source;
       if (templateStopped) {
         state.activity.error = t()("activityGraphqlHint");
+        runtime.reset();
         if (state.activityScan) {
           state.activityScan.checked = state.activity.checked;
           state.activityScan.stopped = "template";

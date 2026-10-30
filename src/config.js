@@ -371,7 +371,7 @@ export const I18N = {
     activityFallback:
       "Batch check unavailable; switching to profile checks",
     activityGraphqlHint:
-      "Open any profile's Replies tab once, then retry",
+      "X rejected the activity request; reload the page and retry",
     activityCacheWarning:
       "Could not save activity cache; progress will be lost on reload.",
     activityFollowsWarning:
@@ -595,7 +595,7 @@ export const I18N = {
     activityFallback:
       "Toplu kontrol kullanılamadı; hesap başına kontrole geçildi",
     activityGraphqlHint:
-      "Bir profilin Yanıtlar sekmesini açıp tekrar dene",
+      "X aktivite isteğini reddetti; sayfayı yenileyip tekrar dene",
     activityCacheWarning:
       "Aktivite cache'i kaydedilemedi; sayfa yenilenirse ilerleme kaybolur.",
     activityFollowsWarning:

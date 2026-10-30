@@ -277,6 +277,7 @@ export function buildLookupRequest({
   screenNames = [],
   csrf = "",
   origin = "",
+  transactionId = "",
 } = {}) {
   const ids = normalizeSelector(userIds);
   const names = normalizeSelector(screenNames, true);
@@ -294,7 +295,7 @@ export function buildLookupRequest({
     url: url.toString(),
     init: {
       method: "GET",
-      headers: authHeaders(csrf, false),
+      headers: authHeaders(csrf, false, transactionId),
       credentials: "include",
     },
   };
@@ -305,6 +306,7 @@ export function buildShowUserRequest({
   screenName = "",
   csrf = "",
   origin = "",
+  transactionId = "",
 } = {}) {
   const id = String(userId || "").trim();
   const handle = String(screenName || "")
@@ -322,7 +324,7 @@ export function buildShowUserRequest({
     url: url.toString(),
     init: {
       method: "GET",
-      headers: authHeaders(csrf, false),
+      headers: authHeaders(csrf, false, transactionId),
       credentials: "include",
     },
   };
@@ -336,7 +338,7 @@ export function parseShowUser(json) {
 
 export function buildActivityRequest(
   template,
-  { userId = "", count = 20, csrf = "", origin = "" } = {}
+  { userId = "", count = 20, csrf = "", origin = "", transactionId = "" } = {}
 ) {
   if (!template) throw makeError("format", "No activity template");
   const method =
@@ -350,9 +352,9 @@ export function buildActivityRequest(
   variables.withV2Timeline = true;
   delete variables.cursor;
 
-  const transactionId =
-    template.headers?.["x-client-transaction-id"] || "";
-  const headers = authHeaders(csrf, method === "POST", transactionId);
+  const transaction =
+    transactionId || template.headers?.["x-client-transaction-id"] || "";
+  const headers = authHeaders(csrf, method === "POST", transaction);
 
   if (method === "GET") {
     const url = new URL(template.url, originOf(origin));
@@ -469,6 +471,7 @@ export async function runActivityScan(options = {}) {
     signal,
     lookup = true,
     force = false,
+    transactionProvider = null,
   } = options;
 
   const clock =
@@ -523,6 +526,15 @@ export async function runActivityScan(options = {}) {
 
   const check = () => {
     if (signal?.aborted || shouldCancel?.()) throw abortError();
+  };
+
+  const transactionFor = async (method, path) => {
+    if (typeof transactionProvider !== "function") return "";
+    try {
+      return (await transactionProvider(method, path)) || "";
+    } catch {
+      return "";
+    }
   };
 
   const waitWhilePaused = async () => {
@@ -656,13 +668,18 @@ export async function runActivityScan(options = {}) {
     const names = batch.filter((user) => !user.id).map((user) => user.handle);
     let json;
     try {
+      await pace();
+      const transactionId = await transactionFor(
+        "GET",
+        "/i/api/1.1/users/lookup.json"
+      );
       const request = buildLookupRequest({
         userIds: ids,
         screenNames: names,
         csrf,
         origin,
+        transactionId,
       });
-      await pace();
       json = await fetchJson(request.url, request.init, {
         fetchImpl,
         signal,
@@ -720,12 +737,24 @@ export async function runActivityScan(options = {}) {
     }
     while (true) {
       let request;
+      const template = templateList[templateIndex];
+      const method =
+        String(template?.method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
+      let path = "/";
       try {
-        request = buildActivityRequest(templateList[templateIndex], {
+        path = new URL(template.url, originOf(origin)).pathname;
+      } catch {
+        // Keep the fallback path; request building reports the format error.
+      }
+      try {
+        await pace();
+        const transactionId = await transactionFor(method, path);
+        request = buildActivityRequest(template, {
           userId: user.id,
           count: 20,
           csrf,
           origin,
+          transactionId,
         });
       } catch (error) {
         if (error.kind === "format") {
@@ -735,7 +764,6 @@ export async function runActivityScan(options = {}) {
         }
         throw error;
       }
-      await pace();
       let json;
       try {
         json = await fetchJson(request.url, request.init, {
@@ -800,15 +828,24 @@ export async function runActivityScan(options = {}) {
     }
     let request;
     try {
+      await pace();
+      const transactionId = await transactionFor(
+        "GET",
+        "/i/api/1.1/users/show.json"
+      );
       request = user.id
-        ? buildShowUserRequest({ userId: user.id, csrf, origin })
-        : buildShowUserRequest({ screenName: user.handle, csrf, origin });
+        ? buildShowUserRequest({ userId: user.id, csrf, origin, transactionId })
+        : buildShowUserRequest({
+            screenName: user.handle,
+            csrf,
+            origin,
+            transactionId,
+          });
     } catch (error) {
       if (error.kind !== "format") throw error;
       await switchToGraphql(user, error.message);
       return;
     }
-    await pace();
     let json;
     try {
       json = await fetchJson(request.url, request.init, {

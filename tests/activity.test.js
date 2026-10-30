@@ -484,6 +484,34 @@ test("buildActivityRequest overrides count and forwards the transaction id", () 
   assert.equal(request.init.headers["x-client-transaction-id"], "txn-123");
 });
 
+test("buildActivityRequest prefers a freshly generated transaction id", () => {
+  const template = {
+    ...buildDefaultActivityTemplate(),
+    headers: { "x-client-transaction-id": "stale" },
+  };
+  const request = buildActivityRequest(template, {
+    userId: "9",
+    transactionId: "fresh",
+  });
+  assert.equal(request.init.headers["x-client-transaction-id"], "fresh");
+});
+
+test("buildLookupRequest forwards a transaction id", () => {
+  const request = buildLookupRequest({
+    userIds: ["1"],
+    transactionId: "lookup-txn",
+  });
+  assert.equal(request.init.headers["x-client-transaction-id"], "lookup-txn");
+});
+
+test("buildShowUserRequest forwards a transaction id", () => {
+  const request = buildShowUserRequest({
+    userId: "42",
+    transactionId: "show-txn",
+  });
+  assert.equal(request.init.headers["x-client-transaction-id"], "show-txn");
+});
+
 test("buildActivityRequest sets JSON content type for POST templates", () => {
   const template = {
     url: "https://x.com/i/api/graphql/q/UserTweetsAndReplies",
@@ -788,6 +816,63 @@ test("runActivityScan paces before requests and skips the first delay", async ()
   });
   assert.deepEqual(sleeps, [100]);
   assert.equal(output.checked, 2);
+});
+
+test("runActivityScan generates a transaction id for every request", async () => {
+  const paths = [];
+  const headers = [];
+  const output = await runActivityScan({
+    users: [makeUser(1, "alice"), makeUser(2, "bob")],
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    csrf: "t",
+    origin: "https://x.com",
+    fetchImpl: async (url, init) => {
+      headers.push(init.headers);
+      return jsonResponse(fixture("user-tweets.json"));
+    },
+    transactionProvider: async (method, path) => {
+      paths.push(`${method} ${path}`);
+      return "txn-live";
+    },
+    sleepFn: async () => {},
+    timings: {
+      scanDelayMin: 0,
+      scanDelayMax: 0,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    },
+    now: NOW,
+  });
+  assert.equal(output.checked, 2);
+  assert.deepEqual(paths, [
+    `GET /i/api/graphql/${ACTIVITY_QUERY_ID}/UserTweetsAndReplies`,
+    `GET /i/api/graphql/${ACTIVITY_QUERY_ID}/UserTweetsAndReplies`,
+  ]);
+  assert.ok(
+    headers.every((entry) => entry["x-client-transaction-id"] === "txn-live")
+  );
+});
+
+test("runActivityScan tolerates a failing transaction provider", async () => {
+  const output = await runActivityScan({
+    users: [makeUser(1, "alice")],
+    lookup: false,
+    template: buildDefaultActivityTemplate(),
+    fetchImpl: async () => jsonResponse(fixture("user-tweets.json")),
+    transactionProvider: async () => {
+      throw new Error("offline");
+    },
+    sleepFn: async () => {},
+    timings: {
+      scanDelayMin: 0,
+      scanDelayMax: 0,
+      scanPauseEveryPages: 0,
+      scanPauseMs: 0,
+    },
+    now: NOW,
+  });
+  assert.equal(output.checked, 1);
 });
 
 test("runActivityScan observes a pause that starts during a delay", async () => {

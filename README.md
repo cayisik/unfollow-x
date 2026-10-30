@@ -108,7 +108,7 @@ If the panel does not appear, check that you are on x.com and look for an error 
 - **Start activity scan** checks every account you follow. The scan never starts automatically.
 - X's batch lookup is called with 10 accounts per request; requests wait 1.5–2.5 seconds and pause for about 10 seconds every 10 requests.
 - If batch lookup is unavailable, the tool falls back to per-account `users/show`; if that is unavailable or ambiguous, it uses per-account `UserTweetsAndReplies` queries. Both paths are slower and are labeled **Profile** in the UI.
-- Several known `UserTweetsAndReplies` query IDs are tried only when no live request was captured; a captured template is used as-is. Opening a profile's Replies tab still captures the live query as the most reliable path.
+- The tool resolves the live `UserTweetsAndReplies` query ID and feature flags from X's own web shell, and generates the `x-client-transaction-id` header for each request. A request captured from a profile's Replies tab is still used first when one is available.
 - An account is inactive when it has no post, repost, or reply in the inactivity window. The window is configurable in Settings from **1 to 365 days** (default **30**). Accounts with no posts at all are also inactive.
 - Accounts whose activity cannot be read are not treated as inactive; they appear in a separate **Could not check** section and cannot be unfollowed.
 - Unfollowing from the inactive tab uses the same safe queue. If selected accounts follow you back, the confirmation dialog warns you.
@@ -227,11 +227,11 @@ It may be correct: everyone in the scanned list follows you back, or the list is
 
 ### Query ID / format errors, or the API path fails
 
-X rotates GraphQL query IDs, feature flags, and transaction-id requirements without notice. The script falls back to the built-in templates, then to DOM scanning. Keep the tab visible while scanning. If all paths fail, X likely changed its frontend; the DOM selectors in `src/dom.js` may need an update.
+X rotates GraphQL query IDs, feature flags, and transaction-id requirements without notice. At scan start the script reads the live query ID and feature switches from X's own web shell (`/i/jf/`) and generates the transaction ID, so routine rotation needs no update. If X still rejects the request, reload the page and retry. If every path fails, X likely changed its frontend; the DOM selectors in `src/dom.js` may need an update.
 
 ### `x-client-transaction-id` rejection
 
-The script copies a transaction ID only if it captured one from X. If X rejects the request, the API path degrades to the DOM fallback. Reload, visit the Following page, and let X make its own request before scanning again.
+The script generates a fresh transaction ID per request from X's shell, and reuses a captured one when X already made the same call. If X rejects the request, the activity scan stops with a retryable error and the API path degrades to the DOM fallback. Reload the page and retry.
 
 ### DOM scan finds nothing
 

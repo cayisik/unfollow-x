@@ -338,7 +338,7 @@
       activityClearTitle: "Clear activity data?",
       activityClearBody: "Last post times and check records will be removed from this device.",
       activityFallback: "Batch check unavailable; switching to profile checks",
-      activityGraphqlHint: "Open any profile's Replies tab once, then retry",
+      activityGraphqlHint: "X rejected the activity request; reload the page and retry",
       activityCacheWarning: "Could not save activity cache; progress will be lost on reload.",
       activityFollowsWarning: "{count} selected accounts follow you. Unfollow anyway?",
       activityUnfollowTitle: "Unfollow {count} inactive accounts?",
@@ -542,7 +542,7 @@
       activityClearTitle: "Aktivite verileri silinsin mi?",
       activityClearBody: "Son g\xF6nderi zamanlar\u0131 ve kontrol kay\u0131tlar\u0131 bu cihazdan silinir.",
       activityFallback: "Toplu kontrol kullan\u0131lamad\u0131; hesap ba\u015F\u0131na kontrole ge\xE7ildi",
-      activityGraphqlHint: "Bir profilin Yan\u0131tlar sekmesini a\xE7\u0131p tekrar dene",
+      activityGraphqlHint: "X aktivite iste\u011Fini reddetti; sayfay\u0131 yenileyip tekrar dene",
       activityCacheWarning: "Aktivite cache'i kaydedilemedi; sayfa yenilenirse ilerleme kaybolur.",
       activityFollowsWarning: "Se\xE7ilen {count} hesap seni takip ediyor. Yine de takipten \xE7\u0131k\u0131ls\u0131n m\u0131?",
       activityUnfollowTitle: "{count} pasif hesaptan \xE7\u0131k\u0131ls\u0131n m\u0131?",
@@ -996,11 +996,11 @@
     return safeJsonParse(body, null);
   }
   function parseGraphqlTemplate(input, allowedOperations) {
-    const absolute = absoluteUrl(input?.url);
-    if (!absolute) return null;
+    const absolute2 = absoluteUrl(input?.url);
+    if (!absolute2) return null;
     let parsed;
     try {
-      parsed = new URL(absolute);
+      parsed = new URL(absolute2);
     } catch {
       return null;
     }
@@ -1027,7 +1027,7 @@
     }
     if (!variables || typeof variables !== "object") variables = {};
     return {
-      url: absolute,
+      url: absolute2,
       method: upperMethod,
       headers: pickHeaders(input?.headers),
       body: typeof input?.body === "string" ? input.body : bodyJson ? JSON.stringify(bodyJson) : "",
@@ -2453,7 +2453,8 @@
     userIds = [],
     screenNames = [],
     csrf = "",
-    origin = ""
+    origin = "",
+    transactionId = ""
   } = {}) {
     const ids = normalizeSelector(userIds);
     const names = normalizeSelector(screenNames, true);
@@ -2471,7 +2472,7 @@
       url: url.toString(),
       init: {
         method: "GET",
-        headers: authHeaders3(csrf, false),
+        headers: authHeaders3(csrf, false, transactionId),
         credentials: "include"
       }
     };
@@ -2480,7 +2481,8 @@
     userId = "",
     screenName = "",
     csrf = "",
-    origin = ""
+    origin = "",
+    transactionId = ""
   } = {}) {
     const id = String(userId || "").trim();
     const handle = String(screenName || "").trim().replace(/^@/, "");
@@ -2496,7 +2498,7 @@
       url: url.toString(),
       init: {
         method: "GET",
-        headers: authHeaders3(csrf, false),
+        headers: authHeaders3(csrf, false, transactionId),
         credentials: "include"
       }
     };
@@ -2506,7 +2508,7 @@
     if (!raw || typeof raw !== "object") return null;
     return parseLookupUsers([raw]).items[0] || null;
   }
-  function buildActivityRequest(template, { userId = "", count = 20, csrf = "", origin = "" } = {}) {
+  function buildActivityRequest(template, { userId = "", count = 20, csrf = "", origin = "", transactionId = "" } = {}) {
     if (!template) throw makeError2("format", "No activity template");
     const method = String(template.method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
     const variables = { ...template.variables || {} };
@@ -2517,8 +2519,8 @@
     variables.withVoice = true;
     variables.withV2Timeline = true;
     delete variables.cursor;
-    const transactionId = template.headers?.["x-client-transaction-id"] || "";
-    const headers = authHeaders3(csrf, method === "POST", transactionId);
+    const transaction = transactionId || template.headers?.["x-client-transaction-id"] || "";
+    const headers = authHeaders3(csrf, method === "POST", transaction);
     if (method === "GET") {
       const url = new URL(template.url, originOf2(origin));
       url.searchParams.set("variables", JSON.stringify(variables));
@@ -2624,7 +2626,8 @@
       shouldCancel,
       signal,
       lookup = true,
-      force = false
+      force = false,
+      transactionProvider = null
     } = options;
     const clock = typeof options.now === "function" ? options.now : () => {
       const raw = options.now;
@@ -2666,6 +2669,14 @@
     let templateIndex = 0;
     const check = () => {
       if (signal?.aborted || shouldCancel?.()) throw abortError();
+    };
+    const transactionFor = async (method, path) => {
+      if (typeof transactionProvider !== "function") return "";
+      try {
+        return await transactionProvider(method, path) || "";
+      } catch {
+        return "";
+      }
     };
     const waitWhilePaused = async () => {
       while (shouldPause?.()) {
@@ -2786,13 +2797,18 @@
       const names = batch.filter((user) => !user.id).map((user) => user.handle);
       let json;
       try {
+        await pace();
+        const transactionId = await transactionFor(
+          "GET",
+          "/i/api/1.1/users/lookup.json"
+        );
         const request = buildLookupRequest({
           userIds: ids,
           screenNames: names,
           csrf,
-          origin
+          origin,
+          transactionId
         });
-        await pace();
         json = await fetchJson(request.url, request.init, {
           fetchImpl,
           signal,
@@ -2845,12 +2861,22 @@
       }
       while (true) {
         let request;
+        const template2 = templateList[templateIndex];
+        const method = String(template2?.method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
+        let path = "/";
         try {
-          request = buildActivityRequest(templateList[templateIndex], {
+          path = new URL(template2.url, originOf2(origin)).pathname;
+        } catch {
+        }
+        try {
+          await pace();
+          const transactionId = await transactionFor(method, path);
+          request = buildActivityRequest(template2, {
             userId: user.id,
             count: 20,
             csrf,
-            origin
+            origin,
+            transactionId
           });
         } catch (error) {
           if (error.kind === "format") {
@@ -2860,7 +2886,6 @@
           }
           throw error;
         }
-        await pace();
         let json;
         try {
           json = await fetchJson(request.url, request.init, {
@@ -2920,13 +2945,22 @@
       }
       let request;
       try {
-        request = user.id ? buildShowUserRequest({ userId: user.id, csrf, origin }) : buildShowUserRequest({ screenName: user.handle, csrf, origin });
+        await pace();
+        const transactionId = await transactionFor(
+          "GET",
+          "/i/api/1.1/users/show.json"
+        );
+        request = user.id ? buildShowUserRequest({ userId: user.id, csrf, origin, transactionId }) : buildShowUserRequest({
+          screenName: user.handle,
+          csrf,
+          origin,
+          transactionId
+        });
       } catch (error) {
         if (error.kind !== "format") throw error;
         await switchToGraphql(user, error.message);
         return;
       }
-      await pace();
       let json;
       try {
         json = await fetchJson(request.url, request.init, {
@@ -5445,8 +5479,357 @@
     };
   }
 
+  // src/runtime.js
+  var HOME_PATH = "/i/jf/";
+  var ON_DEMAND_HOST = "https://abs.twimg.com";
+  var CACHE_TTL = 20 * 60 * 1e3;
+  var FAILURE_TTL = 60 * 1e3;
+  var DEFAULT_KEYWORD = "obfiowerehiring";
+  var ADDITIONAL_RANDOM_NUMBER = 3;
+  var HASH_EPOCH = 16829244e5;
+  function absolute(url, origin) {
+    try {
+      return new URL(url, origin).toString();
+    } catch {
+      return "";
+    }
+  }
+  function firstMatch(value, pattern) {
+    const match = String(value || "").match(pattern);
+    return match ? match[1] : "";
+  }
+  function parseHomeShell(html) {
+    if (typeof html !== "string" || !html) return null;
+    const key = firstMatch(
+      html,
+      /<meta[^>]*name=["']twitter-site-verification["'][^>]*content=["']([^"']+)["']/i
+    );
+    const frames = [
+      ...html.matchAll(
+        /<(?:svg|div)[^>]*id=["']loading-x-anim-\d+["'][\s\S]*?<\/(?:svg|div)>/gi
+      )
+    ].map((block) => {
+      const paths = [
+        ...block[0].matchAll(/<path[^>]*\bd=["']([^"']+)["']/gi)
+      ].map((match) => match[1]);
+      return paths.sort((a, b) => b.length - a.length)[0] || "";
+    });
+    const chunkId = firstMatch(html, /(\d{3,6})\s*:\s*["']ondemand\.s["']/);
+    let ondemandUrl = "";
+    if (chunkId) {
+      const hash = firstMatch(
+        html,
+        new RegExp(`${chunkId}\\s*:\\s*["']([a-zA-Z0-9_-]{12,})["']`)
+      );
+      if (hash) ondemandUrl = `${ON_DEMAND_HOST}/responsive-web/client-web/ondemand.s.${hash}a.js`;
+    }
+    if (!key || frames.length < 4 || !ondemandUrl) return null;
+    return { key, frames, ondemandUrl };
+  }
+  function parseOndemandIndices(source) {
+    if (typeof source !== "string" || !source) return [];
+    return [...source.matchAll(/\(\w\[(\d{1,2})\],\s*16\)/g)].map(
+      (match) => parseInt(match[1], 10)
+    );
+  }
+  function parseOperationDefinition(source, operationName) {
+    if (typeof source !== "string" || !source || !operationName) return null;
+    const marker = new RegExp(
+      `operationName:"${operationName}"[^]{0,60}?operationType:"query"`
+    );
+    const match = marker.exec(source);
+    if (!match) return null;
+    const index = match.index;
+    const before = source.slice(Math.max(0, index - 300), index);
+    const ids = [...before.matchAll(/queryId:"([^"]+)"/g)];
+    let queryId = ids.length ? ids[ids.length - 1][1] : "";
+    if (!queryId) {
+      queryId = firstMatch(source.slice(index, index + 400), /queryId:"([^"]+)"/);
+    }
+    if (!queryId) return null;
+    const slice = source.slice(index, index + 2e4);
+    const array = (name) => {
+      const body = firstMatch(slice, new RegExp(`${name}:\\[([^\\]]*)\\]`));
+      return [...body.matchAll(/"([^"]+)"/g)].map((item) => item[1]);
+    };
+    return {
+      queryId,
+      featureSwitches: array("featureSwitches"),
+      fieldToggles: array("fieldToggles")
+    };
+  }
+  function buildFeatureValues(names) {
+    const values = {};
+    for (const name of names || []) {
+      values[name] = typeof ACTIVITY_FEATURES[name] === "boolean" ? ACTIVITY_FEATURES[name] : false;
+    }
+    return values;
+  }
+  function buildFieldToggles(names) {
+    const values = {};
+    for (const name of names || []) values[name] = false;
+    return values;
+  }
+  function decodeBase64(value) {
+    if (typeof atob === "function") {
+      const binary = atob(value);
+      return Array.from(binary, (char) => char.charCodeAt(0));
+    }
+    return Array.from(Buffer.from(value, "base64"));
+  }
+  function encodeBase64(bytes) {
+    if (typeof btoa === "function") {
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    }
+    return Buffer.from(bytes).toString("base64");
+  }
+  function interpolateNumber(from, to, fraction) {
+    return from * (1 - fraction) + to * fraction;
+  }
+  function floatToHex(value) {
+    const result = [];
+    let quotient = Math.trunc(value);
+    let fraction = value - quotient;
+    while (quotient > 0) {
+      const next = Math.trunc(quotient / 16);
+      const remainder = quotient - next * 16;
+      result.unshift(remainder > 9 ? String.fromCharCode(remainder + 55) : String(remainder));
+      quotient = next;
+    }
+    if (fraction === 0) return result.join("");
+    result.push(".");
+    let guard = 0;
+    while (fraction > 0 && guard < 24) {
+      guard += 1;
+      fraction *= 16;
+      const integer = Math.trunc(fraction);
+      fraction -= integer;
+      result.push(integer > 9 ? String.fromCharCode(integer + 55) : String(integer));
+    }
+    return result.join("");
+  }
+  function isOdd(value) {
+    return value % 2 ? -1 : 0;
+  }
+  var Cubic = class _Cubic {
+    constructor(curves) {
+      this.curves = curves;
+    }
+    static calculate(a, b, m) {
+      return 3 * a * (1 - m) * (1 - m) * m + 3 * b * (1 - m) * m * m + m * m * m;
+    }
+    getValue(time) {
+      const curves = this.curves;
+      let startGradient = 0;
+      let endGradient = 0;
+      let start = 0;
+      let mid = 0;
+      let end = 1;
+      if (time <= 0) {
+        if (curves[0] > 0) startGradient = curves[1] / curves[0];
+        else if (curves[1] === 0 && curves[2] > 0) startGradient = curves[3] / curves[2];
+        return startGradient * time;
+      }
+      if (time >= 1) {
+        if (curves[2] < 1) endGradient = (curves[3] - 1) / (curves[2] - 1);
+        else if (curves[2] === 1 && curves[0] < 1) endGradient = (curves[1] - 1) / (curves[0] - 1);
+        return 1 + endGradient * (time - 1);
+      }
+      while (start < end) {
+        mid = (start + end) / 2;
+        const estimate = _Cubic.calculate(curves[0], curves[2], mid);
+        if (Math.abs(time - estimate) < 1e-5) {
+          return _Cubic.calculate(curves[1], curves[3], mid);
+        }
+        if (estimate < time) start = mid;
+        else end = mid;
+      }
+      return _Cubic.calculate(curves[1], curves[3], mid);
+    }
+  };
+  function solve(value, min, max, rounding) {
+    const result = value * (max - min) / 255 + min;
+    return rounding ? Math.floor(result) : Math.round(result * 100) / 100;
+  }
+  function animationFrames(frames, keyBytes) {
+    const path = frames[keyBytes[5] % 4];
+    return path.slice(9).split("C").map(
+      (piece) => piece.replace(/[^\d]+/g, " ").trim().split(/\s+/).filter(Boolean).map(Number)
+    );
+  }
+  function computeAnimationKey({ key, frames, indices }) {
+    if (!key || !Array.isArray(frames) || frames.length < 4 || !indices?.length) {
+      throw new Error("incomplete transaction inputs");
+    }
+    const keyBytes = decodeBase64(key);
+    const rowIndex = indices[0];
+    const byteIndices = indices.slice(1);
+    const rows = animationFrames(frames, keyBytes);
+    const row = rows[keyBytes[rowIndex] % 16 % rows.length];
+    if (!row) throw new Error("missing animation frame");
+    let frameTime = byteIndices.reduce((total, index) => total * (keyBytes[index] % 16), 1);
+    frameTime = Math.round(frameTime / 10) * 10;
+    const target = frameTime / 4096;
+    const fromColor = row.slice(0, 3).concat(1).map(Number);
+    const toColor = row.slice(3, 6).concat(1).map(Number);
+    const toRotation = solve(row[6], 60, 360, true);
+    const curves = row.slice(7).map((value, index) => solve(value, isOdd(index), 1, false));
+    const progress = new Cubic(curves).getValue(target);
+    const color = fromColor.map(
+      (value, index) => Math.max(0, Math.min(255, interpolateNumber(value, toColor[index], progress)))
+    );
+    const rotation = interpolateNumber(0, toRotation, progress);
+    const radians = rotation * Math.PI / 180;
+    const matrix = [Math.cos(radians), -Math.sin(radians), Math.sin(radians), Math.cos(radians)];
+    const parts = color.slice(0, 3).map((value) => Math.round(value).toString(16));
+    for (const value of matrix) {
+      const hex = floatToHex(Math.round(Math.abs(value) * 100) / 100);
+      parts.push(hex.startsWith(".") ? `0${hex}`.toLowerCase() : hex || "0");
+    }
+    parts.push("0", "0");
+    return parts.join("").replace(/[.-]/g, "");
+  }
+  async function sha256(text) {
+    if (!globalThis.crypto?.subtle) throw new Error("crypto.subtle unavailable");
+    const data = new TextEncoder().encode(text);
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digest));
+  }
+  async function generateTransactionId({
+    key,
+    animationKey,
+    method = "GET",
+    path = "/",
+    time = Date.now(),
+    random = Math.random
+  }) {
+    const keyBytes = decodeBase64(key);
+    const seconds = Math.floor((Number(time) - HASH_EPOCH) / 1e3);
+    const timeBytes = [
+      seconds & 255,
+      seconds >> 8 & 255,
+      seconds >> 16 & 255,
+      seconds >> 24 & 255
+    ];
+    const hash = await sha256(
+      `${method}!${path}!${seconds}${DEFAULT_KEYWORD}${animationKey}`
+    );
+    const noise = Math.floor(random() * 256);
+    const payload = [
+      noise,
+      ...keyBytes.map((byte) => byte ^ noise),
+      ...timeBytes.map((byte) => byte ^ noise),
+      ...hash.slice(0, 16).map((byte) => byte ^ noise),
+      ADDITIONAL_RANDOM_NUMBER ^ noise
+    ];
+    return encodeBase64(payload).replace(/=+$/, "");
+  }
+  function findMainScriptUrl(html, origin) {
+    const source = firstMatch(
+      html,
+      /<script[^>]+src=["']([^"']*responsive-web\/client-web\/main\.[^"']+\.js)["']/i
+    );
+    return source ? absolute(source, origin) : "";
+  }
+  function createRuntimeClient({
+    fetchImpl = globalThis.fetch,
+    origin = "",
+    now = () => Date.now(),
+    cacheTtl = CACHE_TTL
+  } = {}) {
+    const base = origin || (typeof location !== "undefined" ? location.origin : "https://x.com");
+    let shell = null;
+    let mainScript = null;
+    let failedAt = 0;
+    async function fetchText(url) {
+      if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
+      const init = { credentials: "same-origin" };
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        init.signal = AbortSignal.timeout(2e4);
+      }
+      const response = await fetchImpl(url, init);
+      if (!response || !response.ok) {
+        throw new Error(`HTTP ${response?.status ?? "?"} for ${url}`);
+      }
+      return await response.text();
+    }
+    async function loadShell(force = false) {
+      if (!force && shell && now() - shell.at < cacheTtl) return shell;
+      const html = await fetchText(absolute(HOME_PATH, base));
+      const parsed = parseHomeShell(html);
+      if (!parsed) throw new Error("unrecognized X page shell");
+      shell = { at: now(), html, parsed, animationKey: "" };
+      return shell;
+    }
+    async function animationKey() {
+      const current = await loadShell();
+      if (current.animationKey) return current;
+      const source = await fetchText(current.parsed.ondemandUrl);
+      const indices = parseOndemandIndices(source);
+      if (!indices.length) throw new Error("transaction indices not found");
+      current.animationKey = computeAnimationKey({
+        key: current.parsed.key,
+        frames: current.parsed.frames,
+        indices
+      });
+      return current;
+    }
+    async function getOperation(operationName) {
+      const current = await loadShell();
+      if (!mainScript || now() - mainScript.at >= cacheTtl) {
+        const url = findMainScriptUrl(current.html, base);
+        if (!url) throw new Error("main script not found");
+        mainScript = { at: now(), text: await fetchText(url) };
+      }
+      const definition = parseOperationDefinition(mainScript.text, operationName);
+      if (!definition) throw new Error(`operation ${operationName} not found`);
+      return {
+        queryId: definition.queryId,
+        features: buildFeatureValues(definition.featureSwitches),
+        fieldToggles: buildFieldToggles(definition.fieldToggles)
+      };
+    }
+    async function getTransactionId(method, path) {
+      if (now() - failedAt < FAILURE_TTL) return "";
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const current = await animationKey();
+          return await generateTransactionId({
+            key: current.parsed.key,
+            animationKey: current.animationKey,
+            method,
+            path,
+            time: now()
+          });
+        } catch (error) {
+          shell = null;
+          failedAt = now();
+          if (attempt === 1) return "";
+        }
+      }
+      return "";
+    }
+    function reset() {
+      shell = null;
+      mainScript = null;
+      failedAt = 0;
+    }
+    return { getOperation, getTransactionId, reset };
+  }
+
   // src/main.js
   var ACTIVE = null;
+  var RUNTIME = null;
+  var RUNTIME_ORIGIN = "";
+  function runtimeFor(origin) {
+    if (!RUNTIME || RUNTIME_ORIGIN !== origin) {
+      RUNTIME = createRuntimeClient({ origin });
+      RUNTIME_ORIGIN = origin;
+    }
+    return RUNTIME;
+  }
   function mergeScan(existing, incoming) {
     const byHandle = /* @__PURE__ */ new Map();
     const list = [
@@ -6393,6 +6776,34 @@
       activityCacheWarned = false;
       lastActivityPersistAt = 0;
       ui.render();
+      const runtime = runtimeFor(session.origin);
+      const templates = [];
+      const captured = getCapturedActivity();
+      if (captured) templates.push(captured);
+      try {
+        const operation = await runtime.getOperation("UserTweetsAndReplies");
+        templates.push({
+          url: `${session.origin}/i/api/graphql/${operation.queryId}/UserTweetsAndReplies`,
+          method: "GET",
+          headers: {},
+          body: "",
+          variables: {
+            userId: "",
+            count: 20,
+            includePromotedContent: false,
+            withCommunity: true,
+            withVoice: true,
+            withV2Timeline: true
+          },
+          features: operation.features,
+          fieldToggles: operation.fieldToggles,
+          queryId: operation.queryId,
+          operationName: "UserTweetsAndReplies",
+          capturedAt: 0,
+          responseSample: null
+        });
+      } catch {
+      }
       const onResult = (user, entry) => {
         if (state.disposed) return;
         const key = String(entry.id || user.handle.toLowerCase());
@@ -6458,7 +6869,8 @@
           days: state.activityDays,
           csrf: session.csrf,
           origin: session.origin,
-          template: getCapturedActivity(),
+          templates,
+          transactionProvider: (method, path) => runtime.getTransactionId(method, path),
           fetchImpl: globalThis.fetch,
           sleepFn: (ms) => activeSleep(ms),
           random: Math.random,
@@ -6482,6 +6894,7 @@
         state.activity.source = result.source || state.activity.source;
         if (templateStopped) {
           state.activity.error = t()("activityGraphqlHint");
+          runtime.reset();
           if (state.activityScan) {
             state.activityScan.checked = state.activity.checked;
             state.activityScan.stopped = "template";
