@@ -6,6 +6,7 @@ import {
   canUnfollow,
   coverageFrom,
   createState,
+  pruneActivityCache,
   boot,
 } from "../src/main.js";
 import { getCapturedFollowing } from "../src/capture.js";
@@ -253,6 +254,7 @@ test("scan flow reaches results from a captured following response", async () =>
     });
 
     assert.equal(state.mode, "results");
+    assert.equal(state.active.job, null);
     assert.equal(state.users.length, 2);
     assert.deepEqual(
       state.users.map((user) => user.handle),
@@ -405,6 +407,7 @@ test("unfollow keeps one panel through results, pause, and heartbeat", async () 
     dom.window.document.querySelector("[data-confirm]").click();
     const panel = dom.window.document.querySelector("[data-panel]");
     assert.ok(panel);
+    assert.equal(state.active.job, "unfollow");
 
     const gotResult = await waitFor(() => state.unfollow.ok === 1);
     assert.equal(gotResult, true);
@@ -488,6 +491,175 @@ test("createState includes activity defaults", () => {
   assert.equal(state.activity.status, "idle");
 });
 
+test("pruneActivityCache keeps id-keyed entries for id-less users", () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "https://x.com/home",
+  });
+  const previous = { localStorage: globalThis.localStorage };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  try {
+    set("localStorage", dom.window.localStorage);
+    dom.window.localStorage.setItem(
+      "ux_activity_v1",
+      JSON.stringify({
+        version: 1,
+        viewerHandle: "me",
+        savedAt: Date.now(),
+        entries: {
+          "1": {
+            id: "1",
+            handle: "alice",
+            state: "known",
+            lastTweetAt: 0,
+            checkedAt: Date.now(),
+            source: "lookup",
+          },
+          "999": {
+            id: "999",
+            handle: "ghost",
+            state: "known",
+            lastTweetAt: 0,
+            checkedAt: Date.now(),
+            source: "lookup",
+          },
+        },
+      })
+    );
+    const state = {
+      viewer: { handle: "me" },
+      users: [{ handle: "alice" }],
+      activityDays: 30,
+      activityEntries: {
+        "1": {
+          id: "1",
+          handle: "alice",
+          state: "known",
+          lastTweetAt: 0,
+          checkedAt: Date.now(),
+          source: "lookup",
+        },
+        "999": {
+          id: "999",
+          handle: "ghost",
+          state: "known",
+          lastTweetAt: 0,
+          checkedAt: Date.now(),
+          source: "lookup",
+        },
+      },
+    };
+    pruneActivityCache(state);
+    assert.equal(state.activityEntries["1"].handle, "alice");
+    assert.equal(state.activityEntries["999"], undefined);
+    assert.equal(state.activity.inactive, 1);
+    const saved = JSON.parse(
+      dom.window.localStorage.getItem("ux_activity_v1")
+    );
+    assert.deepEqual(Object.keys(saved.entries), ["1"]);
+    assert.equal(saved.entries["1"].handle, "alice");
+  } finally {
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
+
+test("activity actions are scoped to the activity job", () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    state = boot();
+    const root = dom.window.document.getElementById("ux-app");
+    const button = dom.window.document.createElement("button");
+    root.appendChild(button);
+    let woken = 0;
+    state.active = {
+      running: true,
+      paused: false,
+      cancelled: false,
+      abort: new AbortController(),
+      wake: () => {
+        woken += 1;
+      },
+      job: "scan",
+    };
+    button.setAttribute("data-action", "pause-activity");
+    button.click();
+    assert.equal(state.active.paused, false);
+    assert.equal(state.activity.status, "idle");
+    button.setAttribute("data-action", "cancel-activity");
+    button.click();
+    assert.equal(state.active.cancelled, false);
+    button.setAttribute("data-action", "resume-activity");
+    button.click();
+    assert.equal(state.active.paused, false);
+
+    state.active = {
+      running: true,
+      paused: false,
+      cancelled: false,
+      abort: new AbortController(),
+      wake: () => {
+        woken += 1;
+      },
+      job: "activity",
+    };
+    state.activity.status = "scanning";
+    state.activity.nextAt = Date.now() + 5000;
+    button.setAttribute("data-action", "pause-activity");
+    button.click();
+    assert.equal(state.active.paused, true);
+    assert.equal(state.activity.status, "paused");
+    assert.equal(state.activity.nextAt, 0);
+    assert.equal(woken, 1);
+    button.setAttribute("data-action", "resume-activity");
+    button.click();
+    assert.equal(state.active.paused, false);
+    assert.equal(state.activity.status, "scanning");
+    button.setAttribute("data-action", "cancel-activity");
+    button.click();
+    assert.equal(state.active.cancelled, true);
+    assert.equal(woken, 2);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
+
 test("boot loads fresh activity cache for the viewer", () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
@@ -543,6 +715,76 @@ test("boot loads fresh activity cache for the viewer", () => {
     assert.equal(state.activityEntries["1"].handle, "alice");
     assert.equal(state.activity.status, "done");
     assert.equal(state.activity.inactive, 1);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    dom.window.close();
+  }
+});
+
+test("boot restores the template error from a saved activity scan", () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><a data-testid="AppTabBar_Profile_Link" href="/me">Profile</a></body></html>',
+    { url: "https://x.com/home" }
+  );
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    dom.window.localStorage.setItem(
+      "ux_activity_v1",
+      JSON.stringify({
+        version: 1,
+        viewerHandle: "me",
+        savedAt: Date.now(),
+        entries: {
+          "1": {
+            id: "1",
+            handle: "alice",
+            state: "unknown",
+            lastTweetAt: null,
+            reason: "template",
+            checkedAt: Date.now(),
+            source: "graphql",
+          },
+        },
+      })
+    );
+    dom.window.localStorage.setItem(
+      "ux_activity_scan_v1",
+      JSON.stringify({
+        viewerHandle: "me",
+        startedAt: Date.now(),
+        checked: 1,
+        total: 1,
+        complete: false,
+        stopped: "template",
+        savedAt: Date.now(),
+      })
+    );
+    state = boot();
+    assert.equal(state.activity.status, "error");
+    assert.match(state.activity.error, /Replies/);
+    assert.equal(state.activityScan.stopped, "template");
   } finally {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);
@@ -621,6 +863,16 @@ test("activity scan from the inactive tab fills the cache and renders results", 
     state.mode = "results";
     state.unverified = false;
     state.partial = false;
+    state.activityEntries = {
+      orphan: {
+        id: "999",
+        handle: "ghost",
+        state: "known",
+        lastTweetAt: 0,
+        checkedAt: Date.now(),
+        source: "lookup",
+      },
+    };
     state.timings = {
       ...state.timings,
       scanDelayMin: 0,
@@ -642,9 +894,11 @@ test("activity scan from the inactive tab fills the cache and renders results", 
       tick();
     });
     assert.equal(state.activity.status, "done");
-    assert.equal(Object.keys(state.activityEntries).length, 3);
+    assert.equal(Object.keys(state.activityEntries).length, 4);
     assert.equal(state.activityEntries["2"].state, "known");
     assert.equal(state.activityEntries["3"].lastTweetAt, 0);
+    assert.equal(state.activity.inactive, 2);
+    assert.equal(state.active.job, null);
     assert.match(
       dom.window.document.querySelector('[data-view="results"]').textContent,
       /Bob/
@@ -734,6 +988,89 @@ test("activity scan keeps template-broken results as a retryable error", async (
     assert.equal(state.activityEntries["1"].reason, "template");
     assert.equal(state.activityEntries["2"].reason, "template");
     assert.equal(state.activityScan.stopped, "template");
+    assert.equal(state.active.job, null);
+  } finally {
+    state?.cleanup();
+    for (const [key, value] of Object.entries(previous)) restore(key, value);
+    globalThis.fetch = originalFetch;
+    dom.window.close();
+  }
+});
+
+test("late viewer resolution loads the stored activity cache", () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "https://x.com/home",
+  });
+  dom.window.document.cookie = "ct0=test; path=/";
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  const fakeFetch = async () => {
+    fetchCalls += 1;
+    return new Response("{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    location: globalThis.location,
+    localStorage: globalThis.localStorage,
+    fetch: globalThis.fetch,
+  };
+  const set = (key, value) => {
+    Object.defineProperty(globalThis, key, {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  };
+  const restore = (key, value) => {
+    if (value === undefined) delete globalThis[key];
+    else set(key, value);
+  };
+  let state = null;
+  try {
+    set("window", dom.window);
+    set("document", dom.window.document);
+    set("location", dom.window.location);
+    set("localStorage", dom.window.localStorage);
+    set("fetch", fakeFetch);
+    dom.window.localStorage.setItem(
+      "ux_activity_v1",
+      JSON.stringify({
+        version: 1,
+        viewerHandle: "me",
+        savedAt: Date.now(),
+        entries: {
+          "1": {
+            id: "1",
+            handle: "alice",
+            state: "known",
+            lastTweetAt: 0,
+            checkedAt: Date.now(),
+            source: "lookup",
+          },
+        },
+      })
+    );
+    state = boot();
+    assert.equal(state.viewer.handle, "");
+    const link = dom.window.document.createElement("a");
+    link.setAttribute("data-testid", "AppTabBar_Profile_Link");
+    link.setAttribute("href", "/me");
+    dom.window.document.body.appendChild(link);
+    state.users = [
+      { id: "1", handle: "alice", name: "Alice", followsViewer: false },
+    ];
+    state.mode = "results";
+    state.ui.render();
+    dom.window.document.querySelector('[data-tab="inactive"]').click();
+    dom.window.document.querySelector('[data-action="start-activity"]').click();
+    assert.equal(state.viewer.handle, "me");
+    assert.equal(state.activityEntries["1"].handle, "alice");
+    assert.equal(state.activity.status, "done");
+    assert.equal(fetchCalls, 0);
   } finally {
     state?.cleanup();
     for (const [key, value] of Object.entries(previous)) restore(key, value);

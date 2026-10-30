@@ -122,34 +122,76 @@ function idleActivity() {
   };
 }
 
-function hydrateActivityCounters(state) {
-  const entries = Object.values(state.activityEntries || {}).filter((entry) =>
-    isActivityFresh(entry)
+function currentUserKeys(state) {
+  const ids = new Set();
+  const handles = new Set();
+  for (const user of state.users || []) {
+    if (!user || !user.handle) continue;
+    if (user.id) ids.add(String(user.id));
+    handles.add(String(user.handle).toLowerCase());
+  }
+  return { ids, handles };
+}
+
+function matchesActivityUser(entry, key, keys) {
+  const id = String(entry?.id || "");
+  const handle = String(entry?.handle || "").toLowerCase();
+  const rawKey = String(key || "").toLowerCase();
+  return Boolean(
+    (id && keys.ids.has(id)) ||
+    (handle && keys.handles.has(handle)) ||
+    (rawKey && (keys.ids.has(rawKey) || keys.handles.has(rawKey)))
   );
-  const inactive = entries.filter(
-    (entry) => classifyActivity(entry, state.activityDays) === "inactive"
-  ).length;
-  const unknown = entries.filter((entry) => entry.state === "unknown").length;
-  state.activity = {
-    ...idleActivity(),
-    status: entries.length ? "done" : "idle",
+}
+
+function activitySummary(state) {
+  const keys = currentUserKeys(state);
+  const hasUsers = keys.ids.size > 0 || keys.handles.size > 0;
+  // Before a following list is loaded there is nothing to scope against, so
+  // restored cache entries still drive the activity status.
+  const entries = Object.entries(state.activityEntries || {})
+    .filter(
+      ([key, entry]) =>
+        !hasUsers || matchesActivityUser(entry, key, keys)
+    )
+    .map(([, entry]) => entry)
+    .filter((entry) => isActivityFresh(entry));
+  return {
     checked: entries.length,
     total: entries.length,
-    inactive,
-    unknown,
+    inactive: entries.filter(
+      (entry) => classifyActivity(entry, state.activityDays) === "inactive"
+    ).length,
+    unknown: entries.filter((entry) => entry.state === "unknown").length,
   };
 }
 
-function pruneActivityCache(state) {
+function restoreActivityTemplateError(state) {
+  if (state.activityScan?.stopped !== "template") return;
+  state.activity.status = "error";
+  state.activity.error = makeT(state.language)("activityGraphqlHint");
+}
+
+function hydrateActivityCounters(state) {
+  const summary = activitySummary(state);
+  state.activity = {
+    ...idleActivity(),
+    status: summary.checked ? "done" : "idle",
+    checked: summary.checked,
+    total: summary.total,
+    inactive: summary.inactive,
+    unknown: summary.unknown,
+  };
+  restoreActivityTemplateError(state);
+}
+
+export function pruneActivityCache(state) {
   if (!state.viewer.handle) return;
-  const keys = new Set();
-  for (const user of state.users || []) {
-    if (!user || !user.handle) continue;
-    if (user.id) keys.add(String(user.id));
-    keys.add(user.handle.toLowerCase());
-  }
-  for (const key of Object.keys(state.activityEntries)) {
-    if (!keys.has(key)) delete state.activityEntries[key];
+  const keys = currentUserKeys(state);
+  for (const [key, entry] of Object.entries(state.activityEntries || {})) {
+    if (!matchesActivityUser(entry, key, keys)) {
+      delete state.activityEntries[key];
+    }
   }
   saveActivity(undefined, state.viewer.handle, state.activityEntries);
   hydrateActivityCounters(state);
@@ -237,6 +279,7 @@ export function createState() {
       cancelled: false,
       abort: null,
       wake: null,
+      job: null,
     },
     disposed: false,
     ui: null,
@@ -372,6 +415,7 @@ export function boot() {
   let activityUiTimer = null;
   let activityUiAt = 0;
   let activityCacheWarned = false;
+  let lastActivityPersistAt = 0;
 
   function checkpointNow(stopReason = null) {
     if (!state.users.length || !state.viewer.handle) return;
@@ -448,7 +492,9 @@ export function boot() {
     );
   };
 
-  const persistActivity = () => {
+  const persistActivity = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastActivityPersistAt < 15000) return;
     const ok = saveActivityCache();
     if (!ok && !activityCacheWarned) {
       activityCacheWarned = true;
@@ -459,6 +505,7 @@ export function boot() {
       state.activityScan.total = Number(state.activity.total) || 0;
       saveActivityScan(undefined, state.activityScan);
     }
+    lastActivityPersistAt = now;
   };
 
   function queueSleep(ms) {
@@ -556,6 +603,7 @@ export function boot() {
       ui.render();
       return null;
     }
+    const previousHandle = state.viewer.handle;
     const handle = state.viewer.handle || resolveHandle(state);
     if (!handle) {
       requestManualHandle();
@@ -563,6 +611,14 @@ export function boot() {
     }
     state.viewer.handle = handle;
     state.viewer.id = state.viewer.id || parseTwid(getCookie("twid"));
+    if (
+      String(previousHandle || "").toLowerCase() !==
+      String(handle).toLowerCase()
+    ) {
+      state.activityEntries = loadActivity(undefined, handle);
+      state.activityScan = loadActivityScan(undefined, handle);
+      hydrateActivityCounters(state);
+    }
     return {
       csrf,
       handle,
@@ -698,6 +754,7 @@ export function boot() {
     state.scanPauseUntil = 0;
     state.active.running = false;
     state.active.wake = null;
+    state.active.job = null;
     if (truncated) {
       checkpointNow(result.stopReason);
     } else {
@@ -709,7 +766,12 @@ export function boot() {
         ? t()("domEmpty")
         : "";
     snapshotLastScan();
-    if (!truncated) pruneActivityCache(state);
+    const complete =
+      !truncated &&
+      state.source === "api" &&
+      state.users.length > 0 &&
+      ["done", "cursor", "total"].includes(result.stopReason);
+    if (complete) pruneActivityCache(state);
     ui.render();
     const count = state.users.filter(
       (user) => user.followsViewer !== true
@@ -722,6 +784,7 @@ export function boot() {
     state.active.running = false;
     state.active.paused = false;
     state.active.wake = null;
+    state.active.job = null;
     state.paused = false;
     state.scanPauseUntil = 0;
     const kind = error?.kind;
@@ -822,6 +885,7 @@ export function boot() {
       cancelled: false,
       abort: new AbortController(),
       wake: null,
+      job: "scan",
     };
     ui.render();
 
@@ -1066,8 +1130,10 @@ export function boot() {
       cancelled: false,
       abort: new AbortController(),
       wake: null,
+      job: "activity",
     };
     activityCacheWarned = false;
+    lastActivityPersistAt = 0;
     ui.render();
 
     const onResult = (user, entry) => {
@@ -1149,21 +1215,15 @@ export function boot() {
         signal: state.active.abort.signal,
       });
       if (state.disposed) return;
-      const entries = Object.values(state.activityEntries || {}).filter(
-        (entry) => isActivityFresh(entry)
-      );
+      const summary = activitySummary(state);
       const templateStopped = result.stopped === "template";
       state.activity.status = templateStopped ? "error" : "done";
       state.activity.nextAt = 0;
       state.scanPauseUntil = 0;
-      state.activity.checked = entries.length;
-      state.activity.total = entries.length;
-      state.activity.inactive = entries.filter(
-        (entry) => classifyActivity(entry, state.activityDays) === "inactive"
-      ).length;
-      state.activity.unknown = entries.filter(
-        (entry) => entry.state === "unknown"
-      ).length;
+      state.activity.checked = summary.checked;
+      state.activity.total = summary.total;
+      state.activity.inactive = summary.inactive;
+      state.activity.unknown = summary.unknown;
       state.activity.source = result.source || state.activity.source;
       if (templateStopped) {
         state.activity.error = t()("activityGraphqlHint");
@@ -1175,10 +1235,11 @@ export function boot() {
         state.activityScan = null;
         clearActivityScan(undefined);
       }
-      persistActivity();
+      persistActivity(true);
       state.active.running = false;
       state.active.paused = false;
       state.active.wake = null;
+      state.active.job = null;
       state.paused = false;
       ui.render();
       if (!templateStopped) {
@@ -1191,6 +1252,7 @@ export function boot() {
       state.active.running = false;
       state.active.paused = false;
       state.active.wake = null;
+      state.active.job = null;
       state.paused = false;
       state.activity.nextAt = 0;
       state.scanPauseUntil = 0;
@@ -1222,10 +1284,7 @@ export function boot() {
           state.activityScan.stopped = error?.kind || "error";
         }
       }
-      persistActivity();
-      if (!aborted && state.activityScan) {
-        saveActivityScan(undefined, state.activityScan);
-      }
+      persistActivity(true);
       ui.render();
     }
   }
@@ -1298,6 +1357,7 @@ export function boot() {
       cancelled: false,
       abort: new AbortController(),
       wake: null,
+      job: "unfollow",
     };
     ui.render();
 
@@ -1394,6 +1454,7 @@ export function boot() {
     state.active.running = false;
     state.active.paused = false;
     state.active.wake = null;
+    state.active.job = null;
     state.paused = false;
     state.unfollow.ok = Number(output.ok) || 0;
     state.unfollow.fail = Number(output.fail) || 0;
@@ -1450,6 +1511,7 @@ export function boot() {
         ACTIVITY_MIN_DAYS,
         ACTIVITY_MAX_DAYS
       );
+      if (!state.active.running) hydrateActivityCounters(state);
       persist(state);
       ui.toast(t()("settingsSaved"));
       return;
@@ -1493,16 +1555,18 @@ export function boot() {
       return;
     }
     if (action === "pause-activity") {
-      if (state.active.running) {
+      if (state.active.job === "activity" && state.active.running) {
         state.active.paused = true;
         state.paused = true;
         state.activity.status = "paused";
         state.activity.nextAt = 0;
+        state.active.wake?.();
         ui.update();
       }
       return;
     }
     if (action === "resume-activity") {
+      if (state.active.job !== "activity") return;
       state.active.paused = false;
       state.paused = false;
       state.activity.status = "scanning";
@@ -1510,6 +1574,7 @@ export function boot() {
       return;
     }
     if (action === "cancel-activity") {
+      if (state.active.job !== "activity") return;
       state.active.cancelled = true;
       state.active.paused = false;
       state.active.wake?.();
@@ -1586,6 +1651,9 @@ export function boot() {
       const wasPaused = state.paused || state.active.paused;
       state.active.paused = true;
       state.paused = true;
+      if (state.active.job === "activity") {
+        state.activity.status = "paused";
+      }
       if (!wasPaused) ui.toast(t()("keepTabVisible"));
       if (state.mode === "unfollowing") ui.update();
       else ui.render();
