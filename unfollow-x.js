@@ -1,12 +1,61 @@
 /* Unfollow X — paste into the console on x.com. See README.md. */
 (() => {
   // src/config.js
-  var VERSION = "0.2.0";
+  var VERSION = "0.3.0";
   var APP_ID = "ux-app";
   var STYLE_ID = "ux-style";
   var STORAGE_KEY = "ux_state_v1";
   var CHECKPOINT_KEY = "ux_scan_v1";
   var LAST_SCAN_KEY = "ux_last_scan_v1";
+  var ACTIVITY_KEY = "ux_activity_v1";
+  var ACTIVITY_SCAN_KEY = "ux_activity_scan_v1";
+  var ACTIVITY_TTL = 24 * 60 * 60 * 1e3;
+  var ACTIVITY_BATCH_SIZE = 10;
+  var ACTIVITY_DEFAULT_DAYS = 30;
+  var ACTIVITY_MIN_DAYS = 1;
+  var ACTIVITY_MAX_DAYS = 365;
+  var ACTIVITY_QUERY_ID = "M9Tz6NGTHeRzqHOPdj9I7g";
+  var ACTIVITY_FEATURES = {
+    articles_preview_enabled: true,
+    c9s_tweet_anatomy_moderator_badge_enabled: true,
+    communities_web_enable_tweet_community_results_fetch: true,
+    creator_subscriptions_quote_tweet_preview_enabled: false,
+    creator_subscriptions_tweet_preview_api_enabled: true,
+    freedom_of_speech_not_reach_fetch_enabled: true,
+    graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
+    longform_notetweets_consumption_enabled: true,
+    longform_notetweets_inline_media_enabled: true,
+    longform_notetweets_rich_text_read_enabled: true,
+    responsive_web_edit_tweet_api_enabled: true,
+    responsive_web_enhance_cards_enabled: false,
+    responsive_web_graphql_exclude_directive_enabled: true,
+    responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+    responsive_web_grok_community_note_auto_translation_is_enabled: false,
+    responsive_web_graphql_timeline_navigation_enabled: true,
+    responsive_web_grok_imagine_annotation_enabled: false,
+    responsive_web_media_download_video_enabled: false,
+    responsive_web_profile_redirect_enabled: true,
+    responsive_web_twitter_article_tweet_consumption_enabled: true,
+    rweb_tipjar_consumption_enabled: true,
+    rweb_video_timestamps_enabled: true,
+    standardized_nudges_misinfo: true,
+    tweet_awards_web_tipping_enabled: false,
+    tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+    tweet_with_visibility_results_prefer_gql_media_interstitial_enabled: false,
+    tweetypie_unmention_optimization_enabled: true,
+    verified_phone_label_enabled: false,
+    view_counts_everywhere_api_enabled: true,
+    responsive_web_grok_analyze_button_fetch_trends_enabled: false,
+    premium_content_api_read_enabled: false,
+    profile_label_improvements_pcf_label_in_post_enabled: false,
+    responsive_web_grok_share_attachment_enabled: false,
+    responsive_web_grok_analyze_post_followups_enabled: false,
+    responsive_web_grok_image_annotation_enabled: false,
+    responsive_web_grok_analysis_button_from_backend: false,
+    responsive_web_jetfuel_frame: false,
+    rweb_video_screen_enabled: true,
+    responsive_web_grok_show_grok_translated_post: true
+  };
   var STATE_TTL = 24 * 60 * 60 * 1e3;
   var BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
   var UNFOLLOW_MUTATION_ID = "RjGnpAQuMmcqXSjoCR7t6w";
@@ -248,6 +297,51 @@
       selectHint: "Tip: use the filters to narrow the list first.",
       scanSourceHint: "Source: {source}",
       pausedHint: "The scan is paused. Resume when you are ready.",
+      tabNonFollowers: "Non-followers",
+      tabInactive: "Inactive",
+      activityKicker: "Activity audit",
+      activityBody: "Find accounts you follow that have not posted, reposted, or replied in the last {days} days.",
+      activityStart: "Start activity scan",
+      activityScanning: "Checking activity\u2026",
+      activityHint: "Keep this tab visible. You can pause or cancel at any time.",
+      activityProgress: "{checked} / {total} checked",
+      activityCurrent: "Now: @{handle}",
+      activityFound: "{count} inactive accounts",
+      activityFoundOne: "1 inactive account",
+      activityUnit: "inactive accounts",
+      activityUnitOne: "inactive account",
+      activityNone: "No inactive accounts in this window",
+      activityLiveEmpty: "Found inactive accounts will appear here.",
+      activityNever: "No posts yet",
+      activityLastPost: "Last post: {time}",
+      activityLastCheck: "Last check: {time}",
+      activityUnknown: "Could not check",
+      activityUnknownCount: "{count} accounts could not be checked",
+      activityReasonNoId: "No user ID",
+      activityReasonNotFound: "Not found",
+      activityReasonTemplate: "Query failed",
+      activityReasonProtected: "Protected",
+      activityReasonRate: "Rate limited",
+      activityReasonUnavailable: "Unavailable",
+      activityFresh: "Activity data is up to date",
+      activityNeedsScan: "Scan your following list first",
+      activityPartial: "{count} accounts checked. Continue to finish.",
+      activityClear: "Clear activity data",
+      activityCleared: "Activity data cleared",
+      activityClearTitle: "Clear activity data?",
+      activityClearBody: "Last post times and check records will be removed from this device.",
+      activityFallback: "Batch check unavailable; switching to profile checks",
+      activityGraphqlHint: "Open any profile's Replies tab once, then retry",
+      activityCacheWarning: "Could not save activity cache; progress will be lost on reload.",
+      activityFollowsWarning: "{count} selected accounts follow you. Unfollow anyway?",
+      activityUnfollowTitle: "Unfollow {count} inactive accounts?",
+      activityUnfollowBody: "This cannot be undone. These accounts may follow you back.",
+      activityDoneToast: "Activity scan complete: {count} inactive accounts.",
+      activityDays: "Inactive threshold (days)",
+      activitySourceBatch: "Batch",
+      activitySourceProfile: "Profile",
+      pillInactive: "{count} inactive",
+      pillActivity: "Checking activity",
       unfollowPausedHint: "The run is paused. Resume when you are ready."
     },
     tr: {
@@ -406,6 +500,51 @@
       selectHint: "\u0130pucu: \xF6nce filtrelerle listeyi daralt.",
       scanSourceHint: "Kaynak: {source}",
       pausedHint: "Tarama duraklat\u0131ld\u0131. Haz\u0131r oldu\u011Funda devam et.",
+      tabNonFollowers: "Takip etmeyenler",
+      tabInactive: "Pasif hesaplar",
+      activityKicker: "Aktivite denetimi",
+      activityBody: "Takip etti\u011Fin hesaplardan son {days} g\xFCnde g\xF6nderi, retweet veya yan\u0131t payla\u015Fmayanlar\u0131 bul.",
+      activityStart: "Aktivite taramas\u0131n\u0131 ba\u015Flat",
+      activityScanning: "Aktivite kontrol ediliyor\u2026",
+      activityHint: "Bu sekmeyi g\xF6r\xFCn\xFCr tut. \u0130stedi\u011Fin an duraklat\u0131p iptal edebilirsin.",
+      activityProgress: "{checked} / {total} kontrol edildi",
+      activityCurrent: "\u015Eu an: @{handle}",
+      activityFound: "{count} pasif hesap",
+      activityFoundOne: "1 pasif hesap",
+      activityUnit: "pasif hesap",
+      activityUnitOne: "pasif hesap",
+      activityNone: "Bu aral\u0131kta pasif hesap yok",
+      activityLiveEmpty: "Bulunan pasif hesaplar burada g\xF6r\xFCnecek.",
+      activityNever: "Hi\xE7 g\xF6nderi yok",
+      activityLastPost: "Son g\xF6nderi: {time}",
+      activityLastCheck: "Son kontrol: {time}",
+      activityUnknown: "Kontrol edilemedi",
+      activityUnknownCount: "{count} hesap kontrol edilemedi",
+      activityReasonNoId: "Kimlik yok",
+      activityReasonNotFound: "Bulunamad\u0131",
+      activityReasonTemplate: "Sorgu ba\u015Far\u0131s\u0131z",
+      activityReasonProtected: "Korumal\u0131",
+      activityReasonRate: "H\u0131z limiti",
+      activityReasonUnavailable: "Eri\u015Filemedi",
+      activityFresh: "Aktivite verileri g\xFCncel",
+      activityNeedsScan: "\xD6nce takip listeni tara",
+      activityPartial: "{count} hesap kontrol edildi. Tamamlamak i\xE7in devam et.",
+      activityClear: "Aktivite verilerini temizle",
+      activityCleared: "Aktivite verileri temizlendi",
+      activityClearTitle: "Aktivite verileri silinsin mi?",
+      activityClearBody: "Son g\xF6nderi zamanlar\u0131 ve kontrol kay\u0131tlar\u0131 bu cihazdan silinir.",
+      activityFallback: "Toplu kontrol kullan\u0131lamad\u0131; hesap ba\u015F\u0131na kontrole ge\xE7ildi",
+      activityGraphqlHint: "Bir profilin Yan\u0131tlar sekmesini a\xE7\u0131p tekrar dene",
+      activityCacheWarning: "Aktivite cache'i kaydedilemedi; sayfa yenilenirse ilerleme kaybolur.",
+      activityFollowsWarning: "Se\xE7ilen {count} hesap seni takip ediyor. Yine de takipten \xE7\u0131k\u0131ls\u0131n m\u0131?",
+      activityUnfollowTitle: "{count} pasif hesaptan \xE7\u0131k\u0131ls\u0131n m\u0131?",
+      activityUnfollowBody: "Bu i\u015Flem geri al\u0131namaz. Bu hesaplar seni takip ediyor olabilir.",
+      activityDoneToast: "Aktivite taramas\u0131 bitti: {count} pasif hesap.",
+      activityDays: "Pasif e\u015Fi\u011Fi (g\xFCn)",
+      activitySourceBatch: "Toplu",
+      activitySourceProfile: "Profil",
+      pillInactive: "{count} pasif",
+      pillActivity: "Aktivite taran\u0131yor",
       unfollowPausedHint: "\xC7al\u0131\u015Ft\u0131rma duraklat\u0131ld\u0131. Haz\u0131r oldu\u011Funda devam et."
     }
   };
@@ -671,9 +810,9 @@
     }
     return writeJson(storage, STORAGE_KEY, next);
   }
-  function isFresh(savedAt) {
+  function isFresh(savedAt, ttl = TTL) {
     const stamp = Number(savedAt);
-    return Number.isFinite(stamp) && Date.now() - stamp < TTL && stamp <= Date.now() + 6e4;
+    return Number.isFinite(stamp) && Date.now() - stamp < ttl && stamp <= Date.now() + 6e4;
   }
   function sameViewer(expected, actual) {
     if (!actual) return true;
@@ -716,9 +855,73 @@
     if (!Number.isFinite(Number(next.savedAt))) next.savedAt = Date.now();
     return writeJson(storage, LAST_SCAN_KEY, next);
   }
+  function isFreshActivity(entry, now = Date.now()) {
+    const checkedAt = Number(entry?.checkedAt);
+    return Number.isFinite(checkedAt) && checkedAt <= now + 6e4 && now - checkedAt < ACTIVITY_TTL;
+  }
+  function freshActivityEntries(entries, now = Date.now()) {
+    const fresh = {};
+    for (const [key, entry] of Object.entries(entries || {})) {
+      if (isFreshActivity(entry, now)) fresh[key] = entry;
+    }
+    return fresh;
+  }
+  function loadActivity(storage = defaultStorage(), viewerHandle = "") {
+    const parsed = readJson(storage, ACTIVITY_KEY);
+    if (!parsed || !parsed.entries || typeof parsed.entries !== "object") {
+      return {};
+    }
+    if (!sameViewer(viewerHandle, parsed.viewerHandle)) return {};
+    return freshActivityEntries(parsed.entries);
+  }
+  function saveActivity(storage = defaultStorage(), viewerHandle = "", entries = {}) {
+    if (!storage) return false;
+    if (!viewerHandle) return false;
+    const now = Date.now();
+    return writeJson(storage, ACTIVITY_KEY, {
+      version: 1,
+      viewerHandle,
+      savedAt: now,
+      entries: freshActivityEntries(entries, now)
+    });
+  }
+  function clearActivity(storage = defaultStorage()) {
+    if (!storage) return false;
+    try {
+      storage.removeItem(ACTIVITY_KEY);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function loadActivityScan(storage = defaultStorage(), viewerHandle = "") {
+    const scan = readJson(storage, ACTIVITY_SCAN_KEY);
+    if (!scan) return null;
+    if (!isFresh(scan.savedAt, ACTIVITY_TTL)) return null;
+    if (!sameViewer(viewerHandle, scan.viewerHandle)) return null;
+    return scan;
+  }
+  function saveActivityScan(storage = defaultStorage(), scan = {}) {
+    if (!storage) return false;
+    const next = { ...scan };
+    if (!Number.isFinite(Number(next.savedAt))) next.savedAt = Date.now();
+    return writeJson(storage, ACTIVITY_SCAN_KEY, next);
+  }
+  function clearActivityScan(storage = defaultStorage()) {
+    if (!storage) return false;
+    try {
+      storage.removeItem(ACTIVITY_SCAN_KEY);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   // src/capture.js
-  var captured = null;
+  var capturedFollowing = null;
+  var capturedActivity = null;
+  var FOLLOWING_OPERATIONS = /* @__PURE__ */ new Set(["Following", "followingQuery"]);
+  var ACTIVITY_OPERATIONS = /* @__PURE__ */ new Set(["UserTweetsAndReplies"]);
   var FLAG = "__uxCaptureInstalled";
   function absoluteUrl(url) {
     try {
@@ -763,8 +966,8 @@
     if (typeof body !== "string") return null;
     return safeJsonParse(body, null);
   }
-  function parseTemplate({ url, method = "GET", headers, body } = {}) {
-    const absolute = absoluteUrl(url);
+  function parseGraphqlTemplate(input, allowedOperations) {
+    const absolute = absoluteUrl(input?.url);
     if (!absolute) return null;
     let parsed;
     try {
@@ -777,22 +980,17 @@
     );
     if (!match) return null;
     const operationName = decodeURIComponent(match[2]);
-    if (operationName !== "Following" && operationName !== "followingQuery") {
-      return null;
-    }
+    if (!allowedOperations.has(operationName)) return null;
     const queryId = decodeURIComponent(match[1]);
-    const upperMethod = String(method || "GET").toUpperCase();
-    const bodyJson = parseBody(body);
+    const upperMethod = String(input?.method || "GET").toUpperCase();
+    const bodyJson = parseBody(input?.body);
     let variables = {};
     let features = null;
     let fieldToggles = null;
     if (upperMethod === "GET") {
       variables = safeJsonParse(parsed.searchParams.get("variables"), {}) || {};
       features = safeJsonParse(parsed.searchParams.get("features"), null);
-      fieldToggles = safeJsonParse(
-        parsed.searchParams.get("fieldToggles"),
-        null
-      );
+      fieldToggles = safeJsonParse(parsed.searchParams.get("fieldToggles"), null);
     } else {
       variables = bodyJson?.variables || {};
       features = bodyJson?.features ?? null;
@@ -802,8 +1000,8 @@
     return {
       url: absolute,
       method: upperMethod,
-      headers: pickHeaders(headers),
-      body: typeof body === "string" ? body : bodyJson ? JSON.stringify(bodyJson) : "",
+      headers: pickHeaders(input?.headers),
+      body: typeof input?.body === "string" ? input.body : bodyJson ? JSON.stringify(bodyJson) : "",
       variables,
       features,
       fieldToggles,
@@ -812,6 +1010,12 @@
       capturedAt: Date.now(),
       responseSample: null
     };
+  }
+  function parseTemplate(input = {}) {
+    return parseGraphqlTemplate(input, FOLLOWING_OPERATIONS);
+  }
+  function parseActivityTemplate(input = {}) {
+    return parseGraphqlTemplate(input, ACTIVITY_OPERATIONS);
   }
   function requestParts(input, init) {
     if (input && typeof input === "object" && "url" in input) {
@@ -829,14 +1033,15 @@
       body: init?.body
     };
   }
-  function attachSample(response, template) {
+  function attachSample(response, template, readCurrent) {
     if (!response || typeof response.clone !== "function") return;
     try {
       const clone = response.clone();
       if (typeof clone.json !== "function") return;
       clone.json().then((json) => {
-        if (captured && captured.capturedAt === template.capturedAt) {
-          captured.responseSample = json;
+        const current = readCurrent();
+        if (current && current.capturedAt === template.capturedAt) {
+          current.responseSample = json;
         }
       }).catch(() => {
       });
@@ -852,11 +1057,21 @@
     if (typeof fetchImpl === "function" && !fetchImpl[FLAG]) {
       const wrapped = function uxCaptureFetch(input, init) {
         const parts = requestParts(input, init);
-        const template = parseTemplate(parts);
+        const following = parseTemplate(parts);
+        const activity = parseActivityTemplate(parts);
         const promise = fetchImpl.apply(this, arguments);
-        if (template) {
-          captured = template;
-          Promise.resolve(promise).then((response) => attachSample(response, template)).catch(() => {
+        if (following) {
+          capturedFollowing = following;
+          Promise.resolve(promise).then(
+            (response) => attachSample(response, following, () => capturedFollowing)
+          ).catch(() => {
+          });
+        }
+        if (activity) {
+          capturedActivity = activity;
+          Promise.resolve(promise).then(
+            (response) => attachSample(response, activity, () => capturedActivity)
+          ).catch(() => {
           });
         }
         return promise;
@@ -882,19 +1097,25 @@
       proto.send = function uxSend(body) {
         const meta = this.__uxRequest;
         if (meta) {
-          const template = parseTemplate({
+          const input = {
             url: meta.url,
             method: meta.method,
             headers: null,
             body
-          });
-          if (template) {
-            captured = template;
+          };
+          const following = parseTemplate(input);
+          const activity = parseActivityTemplate(input);
+          if (following) capturedFollowing = following;
+          if (activity) capturedActivity = activity;
+          if (following || activity) {
             this.addEventListener?.("load", () => {
               try {
                 const json = safeJsonParse(this.responseText, null);
-                if (json && captured && captured.capturedAt === template.capturedAt) {
-                  captured.responseSample = json;
+                if (json && following && capturedFollowing && capturedFollowing.capturedAt === following.capturedAt) {
+                  capturedFollowing.responseSample = json;
+                }
+                if (json && activity && capturedActivity && capturedActivity.capturedAt === activity.capturedAt) {
+                  capturedActivity.responseSample = json;
                 }
               } catch {
               }
@@ -931,10 +1152,14 @@
       }
     } catch {
     }
-    captured = null;
+    capturedFollowing = null;
+    capturedActivity = null;
   }
   function getCapturedFollowing() {
-    return captured;
+    return capturedFollowing;
+  }
+  function getCapturedActivity() {
+    return capturedActivity;
   }
 
   // src/api.js
@@ -1991,6 +2216,702 @@
     return output;
   }
 
+  // src/activity.js
+  var DAY = 24 * 60 * 60 * 1e3;
+  function makeError2(kind, message, extra = {}) {
+    const error = new Error(message || kind);
+    error.kind = kind;
+    Object.assign(error, extra);
+    return error;
+  }
+  function parseTwitterDate(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const text = String(value).trim();
+    if (/^\d+$/.test(text)) {
+      const number = Number(text);
+      if (!Number.isFinite(number) || number <= 0) return null;
+      return number > 1e12 ? number : number * 1e3;
+    }
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  function classifyActivity(entry, days = ACTIVITY_DEFAULT_DAYS, now = Date.now()) {
+    if (!entry || entry.state !== "known") return "unknown";
+    const raw = entry.lastTweetAt;
+    if (raw === null || raw === void 0 || raw === "") return "unknown";
+    const stamp = Number(raw);
+    if (!Number.isFinite(stamp) || stamp < 0) return "unknown";
+    if (stamp === 0) return "inactive";
+    const windowDays = clamp(
+      Number(days) || ACTIVITY_DEFAULT_DAYS,
+      ACTIVITY_MIN_DAYS,
+      ACTIVITY_MAX_DAYS
+    );
+    return stamp <= now - windowDays * DAY ? "inactive" : "active";
+  }
+  function isActivityFresh(entry, now = Date.now()) {
+    const checkedAt = Number(entry?.checkedAt);
+    return Number.isFinite(checkedAt) && checkedAt <= now + 6e4 && now - checkedAt < ACTIVITY_TTL;
+  }
+  function activityEntryFor(entries, user) {
+    const store = entries && typeof entries === "object" ? entries : {};
+    const id = String(user?.id || "");
+    const handle = String(user?.handle || "").toLowerCase();
+    if (id && Object.hasOwn(store, id)) return store[id];
+    if (handle && Object.hasOwn(store, handle)) return store[handle];
+    return null;
+  }
+  function normalizeLookupItem(raw) {
+    const id = String(raw?.id_str || raw?.id || "").trim();
+    const handle = String(raw?.screen_name || raw?.handle || "").replace(/^@/, "").trim();
+    if (!id && !handle) return null;
+    const rawCount = raw?.statuses_count;
+    const parsedCount = rawCount === null || rawCount === void 0 || rawCount === "" ? null : Number(rawCount);
+    const count = Number.isFinite(parsedCount) ? parsedCount : null;
+    const createdAt = raw?.status?.created_at;
+    let state = "fallback";
+    let lastTweetAt = null;
+    if (createdAt !== void 0 && createdAt !== null && createdAt !== "") {
+      const parsed = parseTwitterDate(createdAt);
+      if (parsed !== null) {
+        state = "known";
+        lastTweetAt = parsed;
+      }
+    } else if (count === 0) {
+      state = "known";
+      lastTweetAt = 0;
+    }
+    return { id, handle, state, lastTweetAt, statusesCount: count, reason: "" };
+  }
+  function parseLookupUsers(json) {
+    const list = Array.isArray(json) ? json : Array.isArray(json?.users) ? json.users : [];
+    const byId = /* @__PURE__ */ new Map();
+    const byHandle = /* @__PURE__ */ new Map();
+    const items = /* @__PURE__ */ new Map();
+    for (const raw of list) {
+      const item = normalizeLookupItem(raw);
+      if (!item) continue;
+      const key = item.id || item.handle.toLowerCase();
+      items.set(key, item);
+      if (item.id) byId.set(item.id, item);
+      if (item.handle) byHandle.set(item.handle.toLowerCase(), item);
+    }
+    return { items: [...items.values()], byId, byHandle };
+  }
+  function findInstructions2(node, depth = 0) {
+    if (!node || typeof node !== "object" || depth > 20) return null;
+    if (Array.isArray(node.instructions)) return node.instructions;
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = findInstructions2(item, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    for (const value of Object.values(node)) {
+      const found = findInstructions2(value, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  function collectEntries(node, out, depth = 0) {
+    if (!node || typeof node !== "object" || depth > 30) return;
+    if (node.entry && typeof node.entry === "object") out.push(node.entry);
+    if (Array.isArray(node.entries)) out.push(...node.entries);
+    if (Array.isArray(node.items)) out.push(...node.items);
+    if (Array.isArray(node.moduleItems)) out.push(...node.moduleItems);
+    for (const value of Object.values(node)) collectEntries(value, out, depth + 1);
+  }
+  function isCursorEntry(entry) {
+    const content = entry?.content || entry?.item?.itemContent || entry?.itemContent || {};
+    const contentType = content?.__typename || content?.entryType || "";
+    return Boolean(content?.cursorType) || contentType === "TimelineTimelineCursor" || content?.itemContent?.__typename === "TimelineTimelineCursor" || String(entry?.entryId || "").toLowerCase().includes("cursor");
+  }
+  function tweetResultOf(entry) {
+    const content = entry?.content || entry?.item?.itemContent || entry?.itemContent || {};
+    return content?.itemContent?.tweet_results?.result || content?.tweet_results?.result || entry?.item?.itemContent?.tweet_results?.result || null;
+  }
+  function tweetTimestamp(result, userId) {
+    const tweet = result?.__typename === "TweetWithVisibilityResults" ? result.tweet : result;
+    if (!tweet || tweet.__typename === "TweetUnavailable") {
+      return { relevant: false, at: null };
+    }
+    const legacy = tweet.legacy || {};
+    const authorId = String(tweet.core?.user_results?.result?.rest_id || "");
+    const isRetweet = Boolean(legacy.retweeted_status_result);
+    const relevant = isRetweet || !userId || authorId === String(userId);
+    if (!relevant) return { relevant: false, at: null };
+    return { relevant: true, at: parseTwitterDate(legacy.created_at) };
+  }
+  function parseUserTweetsPage(json, userId = "") {
+    const message = String(json?.errors?.[0]?.message || "");
+    if (/rate limit|too many requests/i.test(message)) {
+      return { state: "unknown", reason: message, fatalKind: "rate" };
+    }
+    if (/could not find user|user not found|suspended|not authorized to view/i.test(message)) {
+      return { state: "unknown", reason: "unavailable" };
+    }
+    if (/could not authenticate|unauthorized|require_login|authentication/i.test(message)) {
+      return { state: "unknown", reason: message, fatalKind: "auth" };
+    }
+    if (/blocked|forbidden|challenge/i.test(message)) {
+      return { state: "unknown", reason: message, fatalKind: "blocked" };
+    }
+    const root = json?.data?.user?.result || json?.data?.user;
+    if (!root) {
+      if (message) {
+        if (/query|queryid|variable|invalid|bad request|unsupported|operation/i.test(
+          message
+        )) {
+          return { state: "unknown", reason: message, fatalKind: "template" };
+        }
+        return { state: "unknown", reason: message };
+      }
+      return { state: "unknown", reason: "not-found" };
+    }
+    if (root.__typename === "UserUnavailable") {
+      return { state: "unknown", reason: "unavailable" };
+    }
+    const instructions = findInstructions2(root);
+    if (!instructions) return { state: "unknown", reason: "parse" };
+    const entries = [];
+    collectEntries(instructions, entries);
+    let recognized = 0;
+    let relevant = 0;
+    let lastTweetAt = 0;
+    let nonCursor = 0;
+    for (const entry of entries) {
+      if (isCursorEntry(entry)) continue;
+      nonCursor += 1;
+      const result = tweetResultOf(entry);
+      if (!result) continue;
+      recognized += 1;
+      const info = tweetTimestamp(result, userId);
+      if (!info.relevant) continue;
+      relevant += 1;
+      if (info.at !== null && info.at > lastTweetAt) lastTweetAt = info.at;
+    }
+    if (recognized === 0 && nonCursor > 0) {
+      return { state: "unknown", reason: "parse" };
+    }
+    if (recognized > 0 && relevant === 0) {
+      return { state: "unknown", reason: "parse" };
+    }
+    if (relevant > 0 && lastTweetAt === 0) {
+      return { state: "unknown", reason: "parse" };
+    }
+    return { state: "known", lastTweetAt, reason: "" };
+  }
+  function originOf2(origin) {
+    return origin || typeof location !== "undefined" && location.origin || "https://x.com";
+  }
+  function authHeaders3(csrf, isJson, transactionId) {
+    const headers = {
+      authorization: `Bearer ${BEARER}`,
+      "x-csrf-token": csrf || "",
+      "x-twitter-auth-type": "OAuth2Session",
+      "x-twitter-active-user": "yes",
+      "x-twitter-client-language": "en"
+    };
+    if (isJson) headers["content-type"] = "application/json";
+    if (transactionId) headers["x-client-transaction-id"] = transactionId;
+    return headers;
+  }
+  function normalizeSelector(values, handles = false) {
+    if (!Array.isArray(values)) return [];
+    return values.map((value) => value === null || value === void 0 ? "" : String(value)).map((value) => value.trim()).map((value) => handles ? value.replace(/^@/, "") : value).filter(Boolean);
+  }
+  function buildLookupRequest({
+    userIds = [],
+    screenNames = [],
+    csrf = "",
+    origin = ""
+  } = {}) {
+    const ids = normalizeSelector(userIds);
+    const names = normalizeSelector(screenNames, true);
+    if (!ids.length && !names.length) {
+      throw makeError2("format", "lookup requires user_id or screen_name");
+    }
+    if (ids.length && names.length) {
+      throw makeError2("format", "lookup accepts one selector type");
+    }
+    const url = new URL("/i/api/1.1/users/lookup.json", originOf2(origin));
+    if (ids.length) url.searchParams.set("user_id", ids.join(","));
+    if (names.length) url.searchParams.set("screen_name", names.join(","));
+    url.searchParams.set("include_entities", "true");
+    return {
+      url: url.toString(),
+      init: {
+        method: "GET",
+        headers: authHeaders3(csrf, false),
+        credentials: "include"
+      }
+    };
+  }
+  function buildActivityRequest(template, { userId = "", count = 20, csrf = "", origin = "" } = {}) {
+    if (!template) throw makeError2("format", "No activity template");
+    const method = String(template.method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
+    const variables = { ...template.variables || {} };
+    variables.userId = String(userId || "");
+    variables.count = Number(count) || 20;
+    variables.includePromotedContent = false;
+    variables.withCommunity = true;
+    variables.withVoice = true;
+    variables.withV2Timeline = true;
+    delete variables.cursor;
+    const transactionId = template.headers?.["x-client-transaction-id"] || "";
+    const headers = authHeaders3(csrf, method === "POST", transactionId);
+    if (method === "GET") {
+      const url = new URL(template.url, originOf2(origin));
+      url.searchParams.set("variables", JSON.stringify(variables));
+      if (template.features && typeof template.features === "object") {
+        url.searchParams.set("features", JSON.stringify(template.features));
+      }
+      if (template.fieldToggles && typeof template.fieldToggles === "object") {
+        url.searchParams.set(
+          "fieldToggles",
+          JSON.stringify(template.fieldToggles)
+        );
+      }
+      return {
+        url: url.toString(),
+        init: { method: "GET", headers, credentials: "include" }
+      };
+    }
+    const base = safeJsonParse(template.body, {}) || {};
+    const body = {
+      ...base,
+      variables,
+      queryId: base.queryId || template.queryId || ""
+    };
+    if (template.features && body.features === void 0) {
+      body.features = template.features;
+    }
+    if (template.fieldToggles && body.fieldToggles === void 0) {
+      body.fieldToggles = template.fieldToggles;
+    }
+    return {
+      url: new URL(template.url, originOf2(origin)).toString(),
+      init: {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        credentials: "include"
+      }
+    };
+  }
+  function buildDefaultActivityTemplate() {
+    const variables = {
+      userId: "",
+      count: 20,
+      includePromotedContent: false,
+      withCommunity: true,
+      withVoice: true,
+      withV2Timeline: true
+    };
+    return {
+      url: `https://x.com/i/api/graphql/${ACTIVITY_QUERY_ID}/UserTweetsAndReplies`,
+      method: "GET",
+      headers: {},
+      body: "",
+      variables,
+      features: ACTIVITY_FEATURES,
+      fieldToggles: { withArticlePlainText: false },
+      queryId: ACTIVITY_QUERY_ID,
+      operationName: "UserTweetsAndReplies",
+      capturedAt: 0,
+      responseSample: null
+    };
+  }
+  function abortError() {
+    return makeError2("aborted", "Aborted");
+  }
+  function isLookupUnsupported(error) {
+    const status = Number(error?.status);
+    if (error?.kind === "blocked" && status === 403) return true;
+    if (error?.kind === "format" && !status && /lookup/i.test(error?.message || "")) {
+      return true;
+    }
+    return error?.kind === "format" && [400, 404, 405, 410].includes(status);
+  }
+  function isUserLevelGraphqlError(error) {
+    const message = String(
+      error?.body?.errors?.[0]?.message || error?.message || ""
+    );
+    return /could not find user|user not found|suspended|not authorized to view|protected|user unavailable|account unavailable/i.test(
+      message
+    );
+  }
+  async function runActivityScan(options = {}) {
+    const {
+      users = [],
+      cache = {},
+      days = ACTIVITY_DEFAULT_DAYS,
+      csrf = "",
+      origin = "",
+      template = null,
+      fetchImpl = globalThis.fetch,
+      sleepFn = sleep,
+      random = Math.random,
+      timings = {},
+      onResult = () => {
+      },
+      onProgress = () => {
+      },
+      shouldPause,
+      shouldCancel,
+      signal,
+      lookup = true,
+      force = false
+    } = options;
+    const clock = typeof options.now === "function" ? options.now : () => {
+      const raw = options.now;
+      if (raw === null || raw === void 0 || String(raw).trim() === "") {
+        return Date.now();
+      }
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : Date.now();
+    };
+    const scanTimings = { ...DEFAULT_TIMINGS, ...timings || {} };
+    const delayMin = Math.max(0, Number(scanTimings.scanDelayMin) || 0);
+    const delayMax = Math.max(delayMin, Number(scanTimings.scanDelayMax) || 0);
+    const pauseEvery = Math.max(
+      0,
+      Number(scanTimings.scanPauseEveryPages) || 0
+    );
+    const pauseMs = Math.max(0, Number(scanTimings.scanPauseMs) || 0);
+    const candidates = dedupeUsers(Array.isArray(users) ? users : []).filter(
+      (user) => {
+        if (!user || !user.handle) return false;
+        if (force) return true;
+        const cached = activityEntryFor(cache, user);
+        if (cached?.reason === "template") return true;
+        return !isActivityFresh(cached, clock());
+      }
+    );
+    const total = candidates.length;
+    let checked = 0;
+    let inactive = 0;
+    let unknown = 0;
+    let requests = 0;
+    let lookupMode = Boolean(lookup);
+    let currentSource = lookupMode ? "lookup" : "graphql";
+    let graphqlBroken = false;
+    let defaultTemplate = template || null;
+    const check = () => {
+      if (signal?.aborted || shouldCancel?.()) throw abortError();
+    };
+    const waitWhilePaused = async () => {
+      while (shouldPause?.()) {
+        check();
+        onProgress({ kind: "paused", checked, total, source: currentSource });
+        await sleepFn(250);
+      }
+      check();
+    };
+    const pace = async () => {
+      if (requests > 0) {
+        const wait = delayMax <= delayMin ? delayMin : delayMin + random() * (delayMax - delayMin);
+        if (wait > 0) {
+          onProgress({
+            kind: "delay",
+            ms: wait,
+            checked,
+            total,
+            source: currentSource
+          });
+          await sleepFn(wait);
+        }
+        if (pauseEvery > 0 && requests % pauseEvery === 0 && pauseMs > 0) {
+          onProgress({
+            kind: "pause",
+            ms: pauseMs,
+            checked,
+            total,
+            source: currentSource
+          });
+          await sleepFn(pauseMs);
+        }
+      }
+      requests += 1;
+      check();
+    };
+    const processEntry = (user, entry) => {
+      const originalState = entry.state;
+      let state = originalState === "known" || originalState === "unknown" ? originalState : "unknown";
+      let parseFailure = state === "unknown" && originalState !== "unknown";
+      let lastTweetAt = null;
+      if (state === "known") {
+        const raw = entry.lastTweetAt;
+        if (raw === null || raw === void 0 || String(raw).trim() === "") {
+          state = "unknown";
+          parseFailure = true;
+        } else {
+          const value = Number(raw);
+          if (Number.isFinite(value) && value >= 0) lastTweetAt = value;
+          else {
+            state = "unknown";
+            parseFailure = true;
+          }
+        }
+      }
+      const normalized = {
+        id: String(entry.id || user.id || ""),
+        handle: user.handle,
+        state,
+        lastTweetAt: state === "known" ? lastTweetAt : null,
+        reason: entry.reason || (state === "unknown" && parseFailure ? "parse" : ""),
+        checkedAt: clock(),
+        source: entry.source || currentSource
+      };
+      checked += 1;
+      if (normalized.state === "unknown") unknown += 1;
+      else if (classifyActivity(normalized, days, clock()) === "inactive") {
+        inactive += 1;
+      }
+      onResult(user, normalized);
+      onProgress({
+        kind: "result",
+        user,
+        entry: normalized,
+        checked,
+        total,
+        inactive,
+        unknown,
+        source: normalized.source
+      });
+      if (checked % 5 === 0) {
+        onProgress({
+          kind: "checkpoint",
+          checked,
+          total,
+          source: normalized.source
+        });
+      }
+    };
+    const breakGraphql = (user) => {
+      graphqlBroken = true;
+      processEntry(user, {
+        state: "unknown",
+        reason: "template",
+        source: "graphql"
+      });
+      onProgress({
+        kind: "template-broken",
+        checked,
+        total,
+        source: currentSource
+      });
+    };
+    const lookupBatch = async (batch) => {
+      const ids = batch.filter((user) => user.id).map((user) => String(user.id));
+      const names = batch.filter((user) => !user.id).map((user) => user.handle);
+      let json;
+      try {
+        const request = buildLookupRequest({
+          userIds: ids,
+          screenNames: names,
+          csrf,
+          origin
+        });
+        await pace();
+        json = await fetchJson(request.url, request.init, {
+          fetchImpl,
+          signal,
+          sleepFn
+        });
+      } catch (error) {
+        if (isLookupUnsupported(error)) {
+          throw makeError2("lookup-unsupported", "lookup unsupported", {
+            cause: error,
+            status: error.status
+          });
+        }
+        throw error;
+      }
+      const parsed = parseLookupUsers(json);
+      const fallback = [];
+      let matched = 0;
+      for (const user of batch) {
+        const handleKey = String(user.handle || "").replace(/^@/, "").toLowerCase();
+        const item = user.id && parsed.byId.get(String(user.id)) || parsed.byHandle.get(handleKey);
+        if (!item) {
+          fallback.push(user);
+          continue;
+        }
+        matched += 1;
+        if (!user.id && item.id) user.id = String(item.id);
+        if (item.state === "known") {
+          processEntry(user, { ...item, source: "lookup" });
+        } else {
+          fallback.push(user);
+        }
+      }
+      if (batch.length > 0 && matched === 0) {
+        throw makeError2("lookup-unsupported", "lookup returned no users");
+      }
+      return fallback;
+    };
+    const graphqlUser = async (user) => {
+      if (graphqlBroken) {
+        processEntry(user, {
+          state: "unknown",
+          reason: "template",
+          source: "graphql"
+        });
+        return;
+      }
+      if (!user.id) {
+        processEntry(user, { state: "unknown", reason: "no-id", source: "graphql" });
+        return;
+      }
+      if (!defaultTemplate) defaultTemplate = buildDefaultActivityTemplate();
+      let request;
+      try {
+        request = buildActivityRequest(defaultTemplate, {
+          userId: user.id,
+          count: 20,
+          csrf,
+          origin
+        });
+      } catch (error) {
+        if (error.kind === "format") {
+          breakGraphql(user);
+          return;
+        }
+        throw error;
+      }
+      await pace();
+      let json;
+      try {
+        json = await fetchJson(request.url, request.init, {
+          fetchImpl,
+          signal,
+          sleepFn
+        });
+      } catch (error) {
+        if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
+          processEntry(user, {
+            state: "unknown",
+            reason: "unavailable",
+            source: "graphql"
+          });
+          return;
+        }
+        if (error.kind === "format" && [400, 404, 405, 410].includes(Number(error.status))) {
+          breakGraphql(user);
+          return;
+        }
+        throw error;
+      }
+      const parsed = parseUserTweetsPage(json, user.id);
+      if (parsed.fatalKind === "template") {
+        breakGraphql(user);
+        return;
+      }
+      if (parsed.fatalKind) {
+        throw makeError2(parsed.fatalKind, parsed.reason || parsed.fatalKind, {
+          status: 200,
+          body: json,
+          retryAfter: 0
+        });
+      }
+      processEntry(user, { ...parsed, source: "graphql" });
+    };
+    onProgress({ kind: "start", total, source: currentSource });
+    if (!total) {
+      onProgress({
+        kind: "done",
+        checked: 0,
+        inactive: 0,
+        unknown: 0,
+        total: 0,
+        source: currentSource,
+        stopped: graphqlBroken ? "template" : "done"
+      });
+      return {
+        checked,
+        inactive,
+        unknown,
+        total,
+        source: currentSource,
+        stopped: graphqlBroken ? "template" : "done"
+      };
+    }
+    const idQueue = candidates.filter((user) => user.id);
+    const handleQueue = candidates.filter((user) => !user.id);
+    let idIndex = 0;
+    let handleIndex = 0;
+    const hasRemaining = () => idIndex < idQueue.length || handleIndex < handleQueue.length;
+    const takeBatch = () => {
+      if (idIndex < idQueue.length) {
+        const batch2 = idQueue.slice(idIndex, idIndex + ACTIVITY_BATCH_SIZE);
+        idIndex += batch2.length;
+        return batch2;
+      }
+      const batch = handleQueue.slice(handleIndex, handleIndex + ACTIVITY_BATCH_SIZE);
+      handleIndex += batch.length;
+      return batch;
+    };
+    const takeOne = () => {
+      if (idIndex < idQueue.length) return idQueue[idIndex++];
+      return handleQueue[handleIndex++];
+    };
+    while (hasRemaining()) {
+      await waitWhilePaused();
+      if (lookupMode) {
+        const batch = takeBatch();
+        let fallback;
+        try {
+          fallback = await lookupBatch(batch);
+        } catch (error) {
+          if (error.kind === "lookup-unsupported") {
+            lookupMode = false;
+            currentSource = "graphql";
+            onProgress({
+              kind: "fallback",
+              to: "graphql",
+              reason: error.message,
+              checked,
+              total
+            });
+            for (const user of batch) {
+              await waitWhilePaused();
+              await graphqlUser(user);
+            }
+            continue;
+          }
+          throw error;
+        }
+        for (const user of fallback) {
+          await waitWhilePaused();
+          await graphqlUser(user);
+        }
+      } else {
+        const user = takeOne();
+        await waitWhilePaused();
+        await graphqlUser(user);
+      }
+    }
+    onProgress({
+      kind: "done",
+      checked,
+      inactive,
+      unknown,
+      total,
+      source: currentSource,
+      stopped: graphqlBroken ? "template" : "done"
+    });
+    return {
+      checked,
+      inactive,
+      unknown,
+      total,
+      source: currentSource,
+      stopped: graphqlBroken ? "template" : "done"
+    };
+  }
+
   // src/ui.js
   var LOCK = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>`;
   var CSS = `
@@ -2287,6 +3208,33 @@
 #${APP_ID} .ux-row:hover .ux-row-actions { opacity: 1; }
 #${APP_ID} .ux-row-actions .ux-icon-btn { width: 24px; height: 24px; }
 #${APP_ID} .ux-row-actions svg { width: 13px; height: 13px; }
+#${APP_ID} .ux-tabs {
+  display: flex; gap: 4px; margin: 0 0 14px;
+  border-bottom: 1px solid var(--ux-line-soft);
+}
+#${APP_ID} .ux-tab {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--ux-muted); font: inherit; font-size: 11px; padding: 8px 4px;
+  cursor: pointer;
+}
+#${APP_ID} .ux-tab.is-active { color: var(--ux-text); border-bottom-color: var(--ux-text); }
+#${APP_ID} .ux-tab-count { font-size: 10px; color: var(--ux-muted); }
+#${APP_ID} .ux-tab.is-active .ux-tab-count { color: var(--ux-text); }
+#${APP_ID} .ux-row-note { color: var(--ux-muted); font-size: 10px; white-space: nowrap; }
+#${APP_ID} .ux-row-spacer { width: 13px; }
+#${APP_ID} .ux-row-muted { opacity: .78; }
+#${APP_ID} .ux-unknown {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--ux-line-soft);
+}
+#${APP_ID} .ux-unknown summary {
+  cursor: pointer; color: var(--ux-muted); font-size: 10.5px;
+}
+#${APP_ID} .ux-activity-intro { padding: 14px 0; }
+#${APP_ID} .ux-activity-intro p {
+  color: var(--ux-muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 12px;
+}
+#${APP_ID} .ux-card-actions { display: flex; gap: 6px; margin-top: 10px; }
 #${APP_ID} .ux-empty { padding: 22px 10px; text-align: center; color: var(--ux-muted); font-size: 11.5px; line-height: 1.5; }
 #${APP_ID} .ux-empty strong { display: block; color: var(--ux-text); font-size: 12px; margin-bottom: 4px; }
 #${APP_ID} .ux-actionbar {
@@ -2407,6 +3355,23 @@
   function keyOf(user) {
     return String(user?.id || String(user?.handle || "").toLowerCase());
   }
+  function getActivityEntry(state, user) {
+    return activityEntryFor(state.activityEntries || {}, user);
+  }
+  function activityStatus(state, user) {
+    const entry = getActivityEntry(state, user);
+    if (!entry || !isActivityFresh(entry)) return "unchecked";
+    return classifyActivity(
+      entry,
+      state.activityDays ?? ACTIVITY_DEFAULT_DAYS
+    );
+  }
+  function getUnknownActivityUsers(state) {
+    return visibleUsers(
+      state,
+      (user) => activityStatus(state, user) === "unknown"
+    ).sort((a, b) => a.handle.localeCompare(b.handle));
+  }
   function hiddenKeys(user) {
     return [
       keyOf(user),
@@ -2417,14 +3382,29 @@
   function isHidden(user, hidden) {
     return hiddenKeys(user).some((key) => hidden.has(key));
   }
-  function getDisplayUsers(state) {
+  function visibleUsers(state, predicate = () => true) {
     const filters = { ...DEFAULT_FILTERS, ...state.filters || {} };
     const hidden = setOf(state.hidden);
     const search = String(state.search || "").trim().toLowerCase().replace(/^@/, "");
-    return (state.users || []).filter((user) => user && user.handle).filter((user) => user.followsViewer !== true).filter((user) => filters.showHidden || !isHidden(user, hidden)).filter((user) => filters.verified || !user.verified).filter((user) => filters.protected || !user.protected).filter((user) => filters.noAvatar || !isDefaultAvatar(user)).filter((user) => {
+    return (state.users || []).filter((user) => user && user.handle).filter(predicate).filter((user) => filters.showHidden || !isHidden(user, hidden)).filter((user) => filters.verified || !user.verified).filter((user) => filters.protected || !user.protected).filter((user) => filters.noAvatar || !isDefaultAvatar(user)).filter((user) => {
       if (!search) return true;
       return user.handle.toLowerCase().includes(search) || String(user.name || "").toLowerCase().includes(search);
-    }).sort((a, b) => a.handle.localeCompare(b.handle));
+    });
+  }
+  function getDisplayUsers(state, tab = state.activeTab || "nonFollowers") {
+    const list = visibleUsers(state, (user) => {
+      if (tab === "inactive") return activityStatus(state, user) === "inactive";
+      return user.followsViewer !== true;
+    });
+    return list.sort((a, b) => {
+      if (tab !== "inactive") return a.handle.localeCompare(b.handle);
+      const aEntry = getActivityEntry(state, a);
+      const bEntry = getActivityEntry(state, b);
+      const aStamp = aEntry?.lastTweetAt === 0 ? -1 : Number(aEntry?.lastTweetAt) || 0;
+      const bStamp = bEntry?.lastTweetAt === 0 ? -1 : Number(bEntry?.lastTweetAt) || 0;
+      if (aStamp !== bStamp) return aStamp - bStamp;
+      return a.handle.localeCompare(b.handle);
+    });
   }
   function pruneSelection(state) {
     const visible = new Set(getDisplayUsers(state).map(keyOf));
@@ -2502,7 +3482,7 @@
     }
     return badges.length ? `<span class="ux-badges">${badges.join("")}</span>` : "";
   }
-  function renderRow(user, state) {
+  function renderRow(user, state, note = "") {
     const t = makeT(state.language);
     const key = keyOf(user);
     const selected = setOf(state.selected).has(key);
@@ -2516,7 +3496,7 @@
       <a href="${escapeAttr(profileUrl(user.handle))}" target="_blank" rel="noreferrer noopener"><strong>${escapeHTML(
       user.name || user.handle
     )}</strong></a>
-      <span>@${escapeHTML(user.handle)} ${badgesHTML(user, t)}</span>
+      <span>@${escapeHTML(user.handle)} ${badgesHTML(user, t)}${note ? ` <span class="ux-row-note">${escapeHTML(note)}</span>` : ""}</span>
     </div>
     <div class="ux-row-actions">
       <button class="ux-icon-btn" data-copy="${escapeAttr(
@@ -2557,20 +3537,330 @@
       t("noMatches")
     )}</strong>${escapeHTML(t("selectHint"))}</div>`;
   }
+  function activityNote(state, user, t) {
+    const entry = getActivityEntry(state, user);
+    if (!entry || entry.state !== "known") return "";
+    if (entry.lastTweetAt === 0) return t("activityNever");
+    return t("activityLastPost", {
+      time: timeAgo(entry.lastTweetAt, state.language)
+    });
+  }
+  function activityListSignature(state, users) {
+    const selected = setOf(state.selected);
+    const hidden = setOf(state.hidden);
+    const rows = users.map((user) => {
+      const key = keyOf(user);
+      const entry = getActivityEntry(state, user);
+      return [
+        key,
+        selected.has(key) ? 1 : 0,
+        isHidden(user, hidden) ? 1 : 0,
+        entry?.lastTweetAt ?? "",
+        entry?.checkedAt ?? ""
+      ].join(":");
+    });
+    return `${rows.join("|")}|${state.language}|${state.activityDays}`;
+  }
+  function activityUnknownSignature(state, users) {
+    const rows = users.map((user) => {
+      const entry = getActivityEntry(state, user);
+      return [keyOf(user), entry?.reason ?? ""].join(":");
+    });
+    return `${rows.join("|")}|${state.language}`;
+  }
+  function reasonLabel(reason, t) {
+    if (reason === "no-id") return t("activityReasonNoId");
+    if (reason === "not-found") return t("activityReasonNotFound");
+    if (reason === "template") return t("activityReasonTemplate");
+    return t("activityReasonUnavailable");
+  }
+  function renderTabs(state, t) {
+    const active = state.activeTab === "inactive" ? "inactive" : "nonFollowers";
+    const nonFollowers = (state.users || []).filter(
+      (user) => user && user.followsViewer !== true
+    ).length;
+    const inactive = (state.users || []).filter(
+      (user) => activityStatus(state, user) === "inactive"
+    ).length;
+    return `<div class="ux-tabs" role="tablist" aria-label="${escapeAttr(
+      t("auditKicker")
+    )}">
+    <button class="ux-tab${active === "nonFollowers" ? " is-active" : ""}" role="tab" aria-selected="${active === "nonFollowers"}" data-action="tab" data-tab="nonFollowers">
+      <span>${escapeHTML(t("tabNonFollowers"))}</span><span class="ux-tab-count">${nonFollowers}</span>
+    </button>
+    <button class="ux-tab${active === "inactive" ? " is-active" : ""}" role="tab" aria-selected="${active === "inactive"}" data-action="tab" data-tab="inactive">
+      <span>${escapeHTML(t("tabInactive"))}</span><span class="ux-tab-count">${inactive}</span>
+    </button>
+  </div>`;
+  }
+  function renderControls(state, t) {
+    const filters = { ...DEFAULT_FILTERS, ...state.filters || {} };
+    const hidden = setOf(state.hidden);
+    return `<label class="ux-search">${ICONS.search}<input data-search value="${escapeAttr(
+      state.search || ""
+    )}" placeholder="${escapeAttr(t("search"))}" autocomplete="off" spellcheck="false"></label>
+    <div class="ux-chips">
+      ${chip(t("filterVerified"), "verified", filters.verified)}
+      ${chip(t("filterProtected"), "protected", filters.protected)}
+      ${chip(t("filterNoAvatar"), "noAvatar", filters.noAvatar)}
+      ${chip(
+      filters.showHidden && hidden.size ? t("showHiddenCount", { count: hidden.size }) : t("filterShowHidden"),
+      "showHidden",
+      filters.showHidden,
+      hidden.size ? `<span class="ux-chip-count">${hidden.size}</span>` : ""
+    )}
+    </div>`;
+  }
+  function renderActionbar(state, t, { locked = false } = {}) {
+    const users = getDisplayUsers(state);
+    const selected = setOf(state.selected);
+    const selectedCount = users.filter((user) => selected.has(keyOf(user))).length;
+    const allSelected = users.length > 0 && users.every((user) => selected.has(keyOf(user)));
+    const someSelected = users.some((user) => selected.has(keyOf(user)));
+    return `<div class="ux-actionbar" data-actionbar>
+    <label class="ux-check"><input type="checkbox" data-select-all ${allSelected ? "checked" : ""} data-indeterminate="${someSelected && !allSelected ? "1" : "0"}">${escapeHTML(
+      t("selectAll")
+    )}</label>
+    <button class="ux-link" data-action="select-none">${escapeHTML(
+      t("selectNone")
+    )}</button>
+    <span class="ux-spacer"></span>
+    <button class="ux-btn ux-btn-ghost" data-action="copy-all">${escapeHTML(
+      t("copyAll")
+    )}</button>
+    <button class="ux-btn ux-btn-primary" data-action="unfollow" ${selectedCount === 0 || state.unverified || locked ? "disabled" : ""} data-unfollow-label>${escapeHTML(t("unfollow"))}${selectedCount ? ` (${selectedCount})` : ""}</button>
+  </div>`;
+  }
+  function renderUnknownRow(user, state, t) {
+    const entry = getActivityEntry(state, user);
+    const reason = reasonLabel(entry?.reason, t);
+    return `<div class="ux-row ux-row-muted">
+    <span class="ux-row-spacer" aria-hidden="true"></span>
+    <a href="${escapeAttr(profileUrl(user.handle))}" target="_blank" rel="noreferrer noopener" aria-label="${escapeAttr(
+      t("openOnX")
+    )}">${avatarHTML(user)}</a>
+    <div class="ux-user">
+      <a href="${escapeAttr(profileUrl(user.handle))}" target="_blank" rel="noreferrer noopener"><strong>${escapeHTML(
+      user.name || user.handle
+    )}</strong></a>
+      <span>@${escapeHTML(user.handle)} <span class="ux-badge ux-badge-muted">${escapeHTML(
+      reason
+    )}</span></span>
+    </div>
+    <div class="ux-row-actions">
+      <button class="ux-icon-btn" data-copy="${escapeAttr(
+      user.handle
+    )}" title="${escapeAttr(t("copyHandle", { handle: user.handle }))}" aria-label="${escapeAttr(
+      t("copyHandle", { handle: user.handle })
+    )}">${ICONS.copy}</button>
+      <a class="ux-icon-btn" href="${escapeAttr(
+      profileUrl(user.handle)
+    )}" target="_blank" rel="noreferrer noopener" title="${escapeAttr(
+      t("openOnX")
+    )}" aria-label="${escapeAttr(t("openOnX"))}">${ICONS.external}</a>
+    </div>
+  </div>`;
+  }
+  function renderUnknownSection(state, t) {
+    const users = getUnknownActivityUsers(state);
+    if (!users.length) return "";
+    return `<details class="ux-unknown" data-activity-unknown-list>
+    <summary>${escapeHTML(t("activityUnknownCount", { count: users.length }))}</summary>
+    ${users.map((user) => renderUnknownRow(user, state, t)).join("")}
+  </details>`;
+  }
+  function renderActivityEmpty(state, t) {
+    if (state.activity?.status === "scanning" || state.activity?.status === "paused") {
+      return `<div class="ux-empty"><strong>${escapeHTML(
+        t("activityLiveEmpty")
+      )}</strong></div>`;
+    }
+    const hasInactive = (state.users || []).some(
+      (user) => activityStatus(state, user) === "inactive"
+    );
+    if (!hasInactive) {
+      return `<div class="ux-empty"><strong>${escapeHTML(
+        t("activityNone")
+      )}</strong>${escapeHTML(t("activityStart"))}</div>`;
+    }
+    return `<div class="ux-empty"><strong>${escapeHTML(
+      t("noMatches")
+    )}</strong>${escapeHTML(t("selectHint"))}</div>`;
+  }
+  function renderActivityProgress(state, t) {
+    const activity = state.activity || {};
+    const checked = Number(activity.checked) || 0;
+    const total = Number(activity.total) || 0;
+    const inactive = Number(activity.inactive) || 0;
+    const percent = total ? clamp(checked / total * 100, 0, 100) : 0;
+    const paused = activity.status === "paused";
+    return `<div class="ux-card ux-activity-progress">
+    <div class="ux-card-line"><span class="ux-live-dot${paused ? " is-paused" : ""}" data-activity-dot></span><strong data-activity-status>${escapeHTML(
+      paused ? t("paused") : t("activityScanning")
+    )}</strong><span class="ux-muted" data-activity-source>${escapeHTML(
+      activity.source === "graphql" ? t("activitySourceProfile") : t("activitySourceBatch")
+    )}</span></div>
+    <div class="ux-bar"><i data-activity-bar style="width:${percent}%"></i></div>
+    <div class="ux-card-line"><span data-activity-current>${escapeHTML(
+      t("activityCurrent", { handle: activity.current || "?" })
+    )}</span><span class="ux-muted" data-activity-progress>${escapeHTML(
+      t("activityProgress", { checked, total })
+    )}</span></div>
+    <div class="ux-card-line"><span class="ux-muted" data-activity-found>${escapeHTML(
+      t(inactive === 1 ? "activityFoundOne" : "activityFound", {
+        count: inactive
+      })
+    )}</span><span class="ux-muted" data-activity-unknown-live>${escapeHTML(
+      t("activityUnknownCount", { count: Number(activity.unknown) || 0 })
+    )}</span></div>
+    <div class="ux-card-actions">
+      <button class="ux-btn ux-btn-soft" data-action="${paused ? "resume-activity" : "pause-activity"}" data-activity-toggle>${escapeHTML(
+      paused ? t("resume") : t("pause")
+    )}</button>
+      <button class="ux-btn ux-btn-ghost" data-action="cancel-activity">${escapeHTML(
+      t("cancel")
+    )}</button>
+    </div>
+    <div class="ux-muted" data-activity-hint>${escapeHTML(
+      countdownText(state) || t("activityHint")
+    )}</div>
+  </div>`;
+  }
+  function renderActivityView(state, t) {
+    const users = getDisplayUsers(state, "inactive");
+    const hasUsers = (state.users || []).some((user) => user && user.handle);
+    const hasData = (state.users || []).some(
+      (user) => user && user.handle && isActivityFresh(getActivityEntry(state, user))
+    );
+    const scanning = state.activity?.status === "scanning" || state.activity?.status === "paused";
+    const partial = Boolean(state.activityScan && !state.activityScan.complete);
+    const scanLabel = partial ? t("resume") : hasData ? t("rescan") : t("activityStart");
+    const warnings = [];
+    if (state.unverified) {
+      warnings.push(
+        `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+          t("unverified")
+        )}</span></div>`
+      );
+    }
+    if (state.partial) {
+      warnings.push(
+        `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+          t("partialBody", { count: state.scan?.scanned || (state.users || []).length })
+        )}</span></div>`
+      );
+    }
+    if (partial && !scanning) {
+      warnings.push(
+        `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+          t("activityPartial", { count: Number(state.activityScan?.checked) || 0 })
+        )}</span></div>`
+      );
+    }
+    if (activityError(state)) {
+      warnings.push(
+        `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+          activityError(state)
+        )}</span></div>`
+      );
+    }
+    const headerActions = hasUsers ? `<div class="ux-results-links">
+      ${scanning ? "" : `<button class="ux-link" data-action="start-activity">${escapeHTML(
+      scanLabel
+    )}</button>`}
+      ${hasData && !scanning ? `<button class="ux-link" data-action="clear-activity">${escapeHTML(
+      t("activityClear")
+    )}</button>` : ""}
+    </div>` : "";
+    const header = `<div class="ux-results-head">
+    <div>
+      <span class="ux-eyebrow">${escapeHTML(t("activityKicker"))}</span>
+      <div class="ux-hero-count">
+        <strong data-activity-count>${users.length}</strong>
+        <span data-activity-unit>${escapeHTML(
+      users.length === 1 ? t("activityUnitOne") : t("activityUnit")
+    )}</span>
+      </div>
+    </div>
+    ${headerActions}
+  </div>`;
+    if (!hasUsers) {
+      return `<div class="ux-results-body ux-activity" data-activity-view>
+      ${header}
+      ${warnings.join("")}
+      <div class="ux-empty"><strong>${escapeHTML(
+        t("activityNeedsScan")
+      )}</strong>${escapeHTML(t("navigateHint"))}</div>
+    </div>`;
+    }
+    if (!hasData && !scanning) {
+      return `<div class="ux-results-body ux-activity" data-activity-view>
+      ${header}
+      ${warnings.join("")}
+      <div class="ux-activity-intro">
+        <p>${escapeHTML(
+        t("activityBody", {
+          days: state.activityDays ?? ACTIVITY_DEFAULT_DAYS
+        })
+      )}</p>
+        <button class="ux-btn ux-btn-primary ux-btn-block" data-action="start-activity">${escapeHTML(
+        scanLabel
+      )}</button>
+      </div>
+    </div>`;
+    }
+    const subline = `<div class="ux-subline">
+    <span data-activity-progress>${escapeHTML(
+      t("activityProgress", {
+        checked: Number(state.activity?.checked) || 0,
+        total: Number(state.activity?.total) || 0
+      })
+    )}</span>
+    <span data-activity-unknown>${escapeHTML(
+      t("activityUnknownCount", { count: getUnknownActivityUsers(state).length })
+    )}</span>
+    <span data-hidden-count>${escapeHTML(
+      t("hiddenCount", { count: setOf(state.hidden).size })
+    )}</span>
+  </div>`;
+    const lastChecked = Math.max(
+      0,
+      ...Object.values(state.activityEntries || {}).filter((entry) => isActivityFresh(entry)).map((entry) => Number(entry?.checkedAt) || 0)
+    );
+    const lastCheck = lastChecked ? `<div class="ux-muted">${escapeHTML(
+      t("activityLastCheck", {
+        time: timeAgo(lastChecked, state.language)
+      })
+    )}</div>` : "";
+    return `<div class="ux-results-body ux-activity" data-activity-view>
+    ${header}
+    ${scanning ? renderActivityProgress(state, t) : subline}
+    ${scanning ? "" : lastCheck}
+    ${warnings.join("")}
+    ${scanning ? "" : renderControls(state, t)}
+    <div class="ux-list" data-activity-list data-signature="${escapeAttr(
+      activityListSignature(state, users)
+    )}">${users.map((user) => renderRow(user, state, activityNote(state, user, t))).join("") || renderActivityEmpty(state, t)}</div>
+    <div data-activity-unknown-host data-signature="${escapeAttr(
+      activityUnknownSignature(state, getUnknownActivityUsers(state))
+    )}">${renderUnknownSection(state, t)}</div>
+    ${scanning ? "" : renderActionbar(state, t, { locked: false })}
+  </div>`;
+  }
+  function activityError(state) {
+    const activity = state.activity || {};
+    if (!activity.error) return "";
+    return activity.error;
+  }
   function chip(label, key, on, extra = "") {
     return `<button class="ux-chip${on ? " is-on" : ""}" data-filter="${key}">${escapeHTML(
       label
     )}${extra}</button>`;
   }
-  function renderResultsView(state) {
-    const t = makeT(state.language);
-    const users = getDisplayUsers(state);
-    const selected = setOf(state.selected);
+  function renderNonFollowersView(state, t) {
+    const users = getDisplayUsers(state, "nonFollowers");
     const hidden = setOf(state.hidden);
     const selectedCount = visibleSelectedCount(state);
-    const allSelected = users.length > 0 && users.every((u) => selected.has(keyOf(u)));
-    const someSelected = users.some((u) => selected.has(keyOf(u)));
-    const filters = { ...DEFAULT_FILTERS, ...state.filters || {} };
     const warnings = [];
     if (state.unverified) {
       warnings.push(
@@ -2593,7 +3883,7 @@
         )}</span></div>`
       );
     }
-    return `<section class="ux-view ux-results" data-view="results">
+    return `<div class="ux-results-body" data-nonfollowers-view>
     <div class="ux-results-head">
       <div>
         <span class="ux-eyebrow">${escapeHTML(t("auditKicker"))}</span>
@@ -2627,36 +3917,16 @@
     )}</span>
     </div>
     ${warnings.join("")}
-    <label class="ux-search">${ICONS.search}<input data-search value="${escapeAttr(
-      state.search || ""
-    )}" placeholder="${escapeAttr(t("search"))}" autocomplete="off" spellcheck="false"></label>
-    <div class="ux-chips">
-      ${chip(t("filterVerified"), "verified", filters.verified)}
-      ${chip(t("filterProtected"), "protected", filters.protected)}
-      ${chip(t("filterNoAvatar"), "noAvatar", filters.noAvatar)}
-      ${chip(
-      filters.showHidden && hidden.size ? t("showHiddenCount", { count: hidden.size }) : t("filterShowHidden"),
-      "showHidden",
-      filters.showHidden,
-      hidden.size ? `<span class="ux-chip-count">${hidden.size}</span>` : ""
-    )}
-    </div>
+    ${renderControls(state, t)}
     <div class="ux-list" data-list>${users.length ? users.map((user) => renderRow(user, state)).join("") : renderEmpty(state, t)}</div>
-    <div class="ux-actionbar" data-actionbar>
-      <label class="ux-check"><input type="checkbox" data-select-all ${allSelected ? "checked" : ""} data-indeterminate="${someSelected && !allSelected ? "1" : "0"}">${escapeHTML(
-      t("selectAll")
-    )}</label>
-      <button class="ux-link" data-action="select-none">${escapeHTML(
-      t("selectNone")
-    )}</button>
-      <span class="ux-spacer"></span>
-      <button class="ux-btn ux-btn-ghost" data-action="copy-all">${escapeHTML(
-      t("copyAll")
-    )}</button>
-      <button class="ux-btn ux-btn-primary" data-action="unfollow" ${selectedCount === 0 || state.unverified ? "disabled" : ""} data-unfollow-label>${escapeHTML(
-      t("unfollow")
-    )}${selectedCount ? ` (${selectedCount})` : ""}</button>
-    </div>
+    ${renderActionbar(state, t)}
+  </div>`;
+  }
+  function renderResultsView(state) {
+    const t = makeT(state.language);
+    return `<section class="ux-view ux-results" data-view="results">
+    ${renderTabs(state, t)}
+    ${state.activeTab === "inactive" ? renderActivityView(state, t) : renderNonFollowersView(state, t)}
   </section>`;
   }
   function renderIdleView(state) {
@@ -2901,6 +4171,12 @@
       ) || 0}`;
     }
     if (state.mode === "results" || state.mode === "done") {
+      if (state.activity?.status === "scanning" || state.activity?.status === "paused") {
+        return t("pillActivity");
+      }
+      if (state.activeTab === "inactive") {
+        return t("pillInactive", { count: getDisplayUsers(state).length });
+      }
       return t("pillResults", { count: getDisplayUsers(state).length });
     }
     return t("pillIdle");
@@ -2925,6 +4201,11 @@
         seconds: Math.ceil((Number(state.scanPauseUntil) - now) / 1e3)
       });
     }
+    if (Number(state.activity?.nextAt) > now) {
+      return t("nextActionIn", {
+        seconds: Math.ceil((Number(state.activity.nextAt) - now) / 1e3)
+      });
+    }
     if (Number(state.unfollow?.nextAt) > now) {
       return t("nextActionIn", {
         seconds: Math.ceil((Number(state.unfollow.nextAt) - now) / 1e3)
@@ -2939,7 +4220,7 @@
       value
     )}" min="${min}" max="${max}" step="${step}" inputmode="decimal"></label>`;
   }
-  function settingsHTML(timings = {}, language = "en") {
+  function settingsHTML(timings = {}, language = "en", activityDays = ACTIVITY_DEFAULT_DAYS) {
     const t = makeT(language);
     const merged = { ...DEFAULT_TIMINGS, ...timings };
     const seconds = (value) => (Number(value) / 1e3).toFixed(1);
@@ -2968,6 +4249,10 @@
       ${field(t("usersPerRequest"), "usersPerRequest", merged.usersPerRequest, {
       min: 1,
       max: 100
+    })}
+      ${field(t("activityDays"), "activityDays", activityDays, {
+      min: ACTIVITY_MIN_DAYS,
+      max: ACTIVITY_MAX_DAYS
     })}
     </div>
     <div class="ux-settings-group">
@@ -3001,7 +4286,7 @@
     </div>
   </div>`;
   }
-  function readSettings(root) {
+  function readSettings(root, activityDaysFallback = ACTIVITY_DEFAULT_DAYS) {
     const read = (key, fallback) => {
       const element = root?.querySelector?.(`[data-setting="${key}"]`);
       const number = Number(element?.value);
@@ -3021,6 +4306,12 @@
       unfollowDelayMin,
       clamp(read("unfollowDelayMax", 20) * 1e3, 5e3, 18e4)
     );
+    const activityElement = root?.querySelector?.(
+      '[data-setting="activityDays"]'
+    );
+    const activityRaw = String(activityElement?.value ?? "").trim();
+    const activityNumber = activityRaw === "" ? NaN : Number(activityRaw);
+    const activityDays = Number.isFinite(activityNumber) && activityNumber > 0 ? activityNumber : activityDaysFallback;
     return {
       scanDelayMin,
       scanDelayMax,
@@ -3039,7 +4330,10 @@
         0,
         36e5
       ),
-      maxUnfollows: Math.round(clamp(read("maxUnfollows", 190), 1, 400))
+      maxUnfollows: Math.round(clamp(read("maxUnfollows", 190), 1, 400)),
+      activityDays: Math.round(
+        clamp(activityDays, ACTIVITY_MIN_DAYS, ACTIVITY_MAX_DAYS)
+      )
     };
   }
   function showDialog({
@@ -3338,7 +4632,135 @@
     document.body.appendChild(root);
     const view = document.defaultView || globalThis.window;
     const t = () => makeT(state.language);
+    const updateActivity = () => {
+      const users = getDisplayUsers(state);
+      const list = root.querySelector("[data-activity-list]");
+      if (list) {
+        const signature = activityListSignature(state, users);
+        if (list.getAttribute("data-signature") !== signature) {
+          list.innerHTML = users.length ? users.map(
+            (user) => renderRow(user, state, activityNote(state, user, t()))
+          ).join("") : renderActivityEmpty(state, t());
+          list.setAttribute("data-signature", signature);
+        }
+      }
+      const unknownHost = root.querySelector("[data-activity-unknown-host]");
+      if (unknownHost) {
+        const unknown = getUnknownActivityUsers(state);
+        const signature = activityUnknownSignature(state, unknown);
+        if (unknownHost.getAttribute("data-signature") !== signature) {
+          unknownHost.innerHTML = renderUnknownSection(state, t());
+          unknownHost.setAttribute("data-signature", signature);
+        }
+      }
+      const count = root.querySelector("[data-activity-count]");
+      if (count) count.textContent = String(users.length);
+      const inactiveTab = root.querySelector(
+        '[data-tab="inactive"] .ux-tab-count'
+      );
+      if (inactiveTab) {
+        inactiveTab.textContent = String(
+          (state.users || []).filter(
+            (user) => activityStatus(state, user) === "inactive"
+          ).length
+        );
+      }
+      const unit = root.querySelector("[data-activity-unit]");
+      if (unit) {
+        unit.textContent = users.length === 1 ? t()("activityUnitOne") : t()("activityUnit");
+      }
+      const progress = root.querySelector("[data-activity-progress]");
+      if (progress) {
+        progress.textContent = t()("activityProgress", {
+          checked: Number(state.activity?.checked) || 0,
+          total: Number(state.activity?.total) || 0
+        });
+      }
+      const bar = root.querySelector("[data-activity-bar]");
+      if (bar) {
+        const total = Number(state.activity?.total) || 0;
+        const checked = Number(state.activity?.checked) || 0;
+        bar.style.width = `${total ? clamp(checked / total * 100, 0, 100) : 0}%`;
+      }
+      const current = root.querySelector("[data-activity-current]");
+      if (current) {
+        current.textContent = t()("activityCurrent", {
+          handle: state.activity?.current || "?"
+        });
+      }
+      const inactive = Number(state.activity?.inactive) || 0;
+      const found = root.querySelector("[data-activity-found]");
+      if (found) {
+        found.textContent = t()(
+          inactive === 1 ? "activityFoundOne" : "activityFound",
+          { count: inactive }
+        );
+      }
+      const unknownLive = root.querySelector("[data-activity-unknown-live]");
+      if (unknownLive) {
+        unknownLive.textContent = t()("activityUnknownCount", {
+          count: Number(state.activity?.unknown) || 0
+        });
+      }
+      const unknownSubline = root.querySelector("[data-activity-unknown]");
+      if (unknownSubline) {
+        unknownSubline.textContent = t()("activityUnknownCount", {
+          count: getUnknownActivityUsers(state).length
+        });
+      }
+      const hiddenCount = root.querySelector("[data-hidden-count]");
+      if (hiddenCount) {
+        hiddenCount.textContent = t()("hiddenCount", {
+          count: setOf(state.hidden).size
+        });
+      }
+      const source = root.querySelector("[data-activity-source]");
+      if (source) {
+        source.textContent = state.activity?.source === "graphql" ? t()("activitySourceProfile") : t()("activitySourceBatch");
+      }
+      const paused = state.activity?.status === "paused";
+      const status = root.querySelector("[data-activity-status]");
+      if (status) {
+        status.textContent = paused ? t()("paused") : t()("activityScanning");
+      }
+      const dot = root.querySelector("[data-activity-dot]");
+      if (dot) dot.classList.toggle("is-paused", paused);
+      const hint = root.querySelector("[data-activity-hint]");
+      if (hint) {
+        hint.textContent = paused ? t()("activityHint") : countdownText(state) || t()("activityHint");
+      }
+      const toggle = root.querySelector("[data-activity-toggle]");
+      if (toggle) {
+        toggle.setAttribute(
+          "data-action",
+          paused ? "resume-activity" : "pause-activity"
+        );
+        toggle.textContent = paused ? t()("resume") : t()("pause");
+      }
+      const selectedCount = visibleSelectedCount(state);
+      const unfollow = root.querySelector('[data-action="unfollow"]');
+      if (unfollow) {
+        unfollow.disabled = selectedCount === 0 || Boolean(state.unverified) || state.activity?.status === "scanning" || state.activity?.status === "paused";
+        unfollow.textContent = `${t()("unfollow")}${selectedCount ? ` (${selectedCount})` : ""}`;
+      }
+      const selectAll = root.querySelector("[data-select-all]");
+      if (selectAll) {
+        const selected = setOf(state.selected);
+        const all = users.length > 0 && users.every((user) => selected.has(keyOf(user)));
+        const some = users.some((user) => selected.has(keyOf(user)));
+        selectAll.checked = all;
+        selectAll.indeterminate = some && !all;
+      }
+      root.querySelectorAll("[data-filter]").forEach((button) => {
+        const key = button.getAttribute("data-filter");
+        button.classList.toggle("is-on", Boolean(state.filters?.[key]));
+      });
+    };
     const updateResults = () => {
+      if ((state.activeTab || "nonFollowers") === "inactive") {
+        updateActivity();
+        return;
+      }
       const users = getDisplayUsers(state);
       const list = root.querySelector("[data-list]");
       if (list) {
@@ -3503,7 +4925,11 @@
       const dialog = showDialog({
         title: t()("settingsTitle"),
         body: t()("settingsBody"),
-        contentHTML: settingsHTML(state.timings, state.language),
+        contentHTML: settingsHTML(
+          state.timings,
+          state.language,
+          state.activityDays ?? ACTIVITY_DEFAULT_DAYS
+        ),
         confirmLabel: t()("save"),
         cancelLabel: t()("cancel"),
         extraLabel: t()("restoreDefaults"),
@@ -3520,9 +4946,16 @@
           }
         },
         onConfirm: (overlay) => {
-          const timings = readSettings(overlay);
+          const timings = readSettings(
+            overlay,
+            state.activityDays ?? ACTIVITY_DEFAULT_DAYS
+          );
           state.timings = timings;
+          state.activityDays = timings.activityDays;
           onAction("save-settings", timings);
+          setTimeout(() => {
+            if (root.isConnected) render();
+          }, 0);
         }
       });
       return dialog;
@@ -3549,10 +4982,21 @@
         return;
       }
       if (state.unverified) return;
+      if (state.activeTab === "inactive" && selected.some((user) => typeof user.followsViewer !== "boolean")) {
+        toast(t()("unverified"));
+        return;
+      }
       const count = selected.length;
+      const activityTab = state.activeTab === "inactive";
+      const followers = selected.filter(
+        (user) => user.followsViewer === true
+      ).length;
       showDialog({
-        title: t()("unfollowConfirmTitle", { count }),
-        body: t()("unfollowConfirmBody"),
+        title: activityTab ? t()("activityUnfollowTitle", { count }) : t()("unfollowConfirmTitle", { count }),
+        body: activityTab ? t()("activityUnfollowBody") : t()("unfollowConfirmBody"),
+        contentHTML: activityTab && followers ? `<div class="ux-warning">${ICONS.alert}<span>${escapeHTML(
+          t()("activityFollowsWarning", { count: followers })
+        )}</span></div>` : "",
         confirmLabel: t()("unfollowConfirmBtn", { count }),
         cancelLabel: t()("cancel"),
         destructive: true,
@@ -3585,13 +5029,42 @@
           "cancel-unfollow",
           "retry-scan",
           "back",
-          "open-following"
+          "open-following",
+          "tab",
+          "start-activity",
+          "pause-activity",
+          "resume-activity",
+          "cancel-activity",
+          "clear-activity"
         ]);
         if (actions.has(action)) {
           event.preventDefault();
           if (action === "settings") openSettings();
           else if (action === "manual-handle") openManualHandle();
-          else if (action === "select-none") {
+          else if (action === "tab") {
+            const tab = actionElement.getAttribute("data-tab");
+            if (tab === "inactive" || tab === "nonFollowers") {
+              if ((state.activeTab || "nonFollowers") === tab) return;
+              state.activeTab = tab;
+              state.selected = /* @__PURE__ */ new Set();
+              onChange();
+              render();
+            }
+            return;
+          } else if (action === "clear-activity") {
+            showDialog({
+              title: t()("activityClearTitle"),
+              body: t()("activityClearBody"),
+              confirmLabel: t()("activityClear"),
+              cancelLabel: t()("cancel"),
+              destructive: true,
+              onConfirm: () => onAction("clear-activity")
+            });
+            return;
+          } else if (action === "start-activity" || action === "pause-activity" || action === "resume-activity" || action === "cancel-activity") {
+            onAction(action);
+            return;
+          } else if (action === "select-none") {
             state.selected = /* @__PURE__ */ new Set();
             onChange();
             update();
@@ -3842,6 +5315,88 @@
       missing
     };
   }
+  function idleActivity() {
+    return {
+      status: "idle",
+      checked: 0,
+      total: 0,
+      inactive: 0,
+      unknown: 0,
+      current: "",
+      source: "lookup",
+      error: "",
+      nextAt: 0,
+      startedAt: 0
+    };
+  }
+  function currentUserKeys(state) {
+    const ids = /* @__PURE__ */ new Set();
+    const handles = /* @__PURE__ */ new Set();
+    for (const user of state.users || []) {
+      if (!user || !user.handle) continue;
+      if (user.id) ids.add(String(user.id));
+      handles.add(String(user.handle).toLowerCase());
+    }
+    return { ids, handles };
+  }
+  function matchesActivityUser(entry, key, keys) {
+    const id = String(entry?.id || "");
+    const handle = String(entry?.handle || "").toLowerCase();
+    const rawKey = String(key || "").toLowerCase();
+    return Boolean(
+      id && keys.ids.has(id) || handle && keys.handles.has(handle) || rawKey && (keys.ids.has(rawKey) || keys.handles.has(rawKey))
+    );
+  }
+  function activitySummary(state) {
+    const keys = currentUserKeys(state);
+    const hasUsers = keys.ids.size > 0 || keys.handles.size > 0;
+    const entries = Object.entries(state.activityEntries || {}).filter(
+      ([key, entry]) => !hasUsers || matchesActivityUser(entry, key, keys)
+    ).map(([, entry]) => entry).filter((entry) => isActivityFresh(entry));
+    return {
+      checked: entries.length,
+      total: entries.length,
+      inactive: entries.filter(
+        (entry) => classifyActivity(entry, state.activityDays) === "inactive"
+      ).length,
+      unknown: entries.filter((entry) => entry.state === "unknown").length
+    };
+  }
+  function refreshActivityCounters(state) {
+    const summary = activitySummary(state);
+    state.activity.checked = summary.checked;
+    state.activity.total = summary.total;
+    state.activity.inactive = summary.inactive;
+    state.activity.unknown = summary.unknown;
+  }
+  function restoreActivityTemplateError(state) {
+    if (state.activityScan?.stopped !== "template") return;
+    state.activity.status = "error";
+    state.activity.error = makeT(state.language)("activityGraphqlHint");
+  }
+  function hydrateActivityCounters(state) {
+    const summary = activitySummary(state);
+    state.activity = {
+      ...idleActivity(),
+      status: summary.checked ? "done" : "idle",
+      checked: summary.checked,
+      total: summary.total,
+      inactive: summary.inactive,
+      unknown: summary.unknown
+    };
+    restoreActivityTemplateError(state);
+  }
+  function pruneActivityCache(state) {
+    if (!state.viewer.handle) return;
+    const keys = currentUserKeys(state);
+    for (const [key, entry] of Object.entries(state.activityEntries || {})) {
+      if (!matchesActivityUser(entry, key, keys)) {
+        delete state.activityEntries[key];
+      }
+    }
+    saveActivity(void 0, state.viewer.handle, state.activityEntries);
+    hydrateActivityCounters(state);
+  }
   function canUnfollow(state) {
     const selected = state?.selected instanceof Set ? state.selected : new Set(Array.isArray(state?.selected) ? state.selected : []);
     return Boolean(state && !state.unverified && selected.size > 0);
@@ -3856,11 +5411,21 @@
   }
   function createState() {
     const stored = loadState();
+    const activityDays = clamp(
+      Number(stored.activityDays) || ACTIVITY_DEFAULT_DAYS,
+      ACTIVITY_MIN_DAYS,
+      ACTIVITY_MAX_DAYS
+    );
     return {
       mode: "idle",
       language: stored.language === "tr" ? "tr" : "en",
       viewer: { handle: "", id: "" },
       users: [],
+      activeTab: "nonFollowers",
+      activityDays,
+      activityEntries: {},
+      activityScan: null,
+      activity: idleActivity(),
       hidden: new Set(
         Array.isArray(stored.hidden) ? stored.hidden.map(String) : []
       ),
@@ -3902,7 +5467,8 @@
         paused: false,
         cancelled: false,
         abort: null,
-        wake: null
+        wake: null,
+        job: null
       },
       disposed: false,
       ui: null,
@@ -3916,7 +5482,8 @@
       timings: state.timings,
       filters: state.filters,
       panelPos: state.panelPos,
-      minimized: state.minimized
+      minimized: state.minimized,
+      activityDays: state.activityDays
     });
   }
   function bareHandleFromHref(href) {
@@ -3981,7 +5548,7 @@
       tick();
     });
   }
-  function abortError() {
+  function abortError2() {
     const error = new Error("Aborted");
     error.kind = "aborted";
     return error;
@@ -3993,6 +5560,9 @@
     cleanupExisting();
     const state = createState();
     resolveHandle(state);
+    state.activityEntries = loadActivity(void 0, state.viewer.handle);
+    state.activityScan = loadActivityScan(void 0, state.viewer.handle);
+    hydrateActivityCounters(state);
     const ui = mountUI({
       state,
       onAction: (action, payload) => handleAction(action, payload),
@@ -4006,6 +5576,10 @@
     ui.render();
     const t = () => makeT(state.language);
     let pauseTimer = null;
+    let activityUiTimer = null;
+    let activityUiAt = 0;
+    let activityCacheWarned = false;
+    let lastActivityPersistAt = 0;
     function checkpointNow(stopReason = null) {
       if (!state.users.length || !state.viewer.handle) return;
       const checkpoint = {
@@ -4048,6 +5622,49 @@
         state.active.wake = finish;
       });
     }
+    const scheduleActivityUi = (force = false) => {
+      if (state.disposed) return;
+      if (force) {
+        activityUiAt = Date.now();
+        ui.update();
+        return;
+      }
+      const wait = 500 - (Date.now() - activityUiAt);
+      if (wait <= 0) {
+        activityUiAt = Date.now();
+        ui.update();
+        return;
+      }
+      if (activityUiTimer) return;
+      activityUiTimer = setTimeout(() => {
+        activityUiTimer = null;
+        activityUiAt = Date.now();
+        if (!state.disposed) ui.update();
+      }, wait);
+    };
+    const saveActivityCache = () => {
+      if (!state.viewer.handle) return true;
+      return saveActivity(
+        void 0,
+        state.viewer.handle,
+        state.activityEntries
+      );
+    };
+    const persistActivity = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastActivityPersistAt < 15e3) return;
+      const ok = saveActivityCache();
+      if (!ok && !activityCacheWarned) {
+        activityCacheWarned = true;
+        ui.toast(t()("activityCacheWarning"));
+      }
+      if (state.activityScan) {
+        state.activityScan.checked = Number(state.activity.checked) || 0;
+        state.activityScan.total = Number(state.activity.total) || 0;
+        saveActivityScan(void 0, state.activityScan);
+      }
+      lastActivityPersistAt = now;
+    };
     function queueSleep(ms) {
       const paused = state.active.paused;
       return new Promise((resolve) => {
@@ -4099,6 +5716,10 @@
       state.lastScan = loadLastScan(void 0, handle);
       state.users = [];
       state.selected = /* @__PURE__ */ new Set();
+      state.activityEntries = loadActivity(void 0, handle);
+      state.activityScan = loadActivityScan(void 0, handle);
+      hydrateActivityCounters(state);
+      state.activeTab = "nonFollowers";
       state.mode = "idle";
       state.error = "";
       ui.render();
@@ -4129,6 +5750,7 @@
         ui.render();
         return null;
       }
+      const previousHandle = state.viewer.handle;
       const handle = state.viewer.handle || resolveHandle(state);
       if (!handle) {
         requestManualHandle();
@@ -4136,6 +5758,15 @@
       }
       state.viewer.handle = handle;
       state.viewer.id = state.viewer.id || parseTwid(getCookie("twid"));
+      if (String(previousHandle || "").toLowerCase() !== String(handle).toLowerCase()) {
+        state.users = [];
+        state.selected = /* @__PURE__ */ new Set();
+        state.checkpoint = loadCheckpoint(void 0, handle);
+        state.lastScan = loadLastScan(void 0, handle);
+        state.activityEntries = loadActivity(void 0, handle);
+        state.activityScan = loadActivityScan(void 0, handle);
+        hydrateActivityCounters(state);
+      }
       return {
         csrf,
         handle,
@@ -4243,6 +5874,7 @@
       state.scanPauseUntil = 0;
       state.active.running = false;
       state.active.wake = null;
+      state.active.job = null;
       if (truncated) {
         checkpointNow(result.stopReason);
       } else {
@@ -4251,6 +5883,8 @@
       }
       state.error = state.source === "dom" && state.users.length === 0 ? t()("domEmpty") : "";
       snapshotLastScan();
+      const complete = !truncated && state.source === "api" && state.users.length > 0 && ["done", "cursor", "total"].includes(result.stopReason);
+      if (complete) pruneActivityCache(state);
       ui.render();
       const count = state.users.filter(
         (user) => user.followsViewer !== true
@@ -4262,6 +5896,7 @@
       state.active.running = false;
       state.active.paused = false;
       state.active.wake = null;
+      state.active.job = null;
       state.paused = false;
       state.scanPauseUntil = 0;
       const kind = error?.kind;
@@ -4313,6 +5948,9 @@
       if (!session) return;
       const useResume = Boolean(resume && state.checkpoint);
       state.error = "";
+      state.activeTab = "nonFollowers";
+      state.activityScan = null;
+      clearActivityScan(void 0);
       state.partial = false;
       state.paused = false;
       state.cooldownUntil = 0;
@@ -4346,16 +5984,18 @@
         paused: false,
         cancelled: false,
         abort: new AbortController(),
-        wake: null
+        wake: null,
+        job: "scan"
       };
       ui.render();
       const onFollowing = await ensureFollowingPage(handle);
       if (state.active.cancelled) {
-        handleScanError(abortError());
+        handleScanError(abortError2());
         return;
       }
       if (!onFollowing) {
         state.active.running = false;
+        state.active.job = null;
         state.mode = "error";
         state.error = t()("navFailed", {
           url: `https://x.com/${handle}/following`
@@ -4374,7 +6014,7 @@
         template = await waitForCaptured(SCAN_LIMITS.captureWaitMs);
       }
       if (state.active.cancelled) {
-        handleScanError(abortError());
+        handleScanError(abortError2());
         return;
       }
       state.scan.waiting = false;
@@ -4443,7 +6083,7 @@
         }
       }
       if (state.active.cancelled || lastError?.kind === "aborted") {
-        handleScanError(lastError || abortError());
+        handleScanError(lastError || abortError2());
         return;
       }
       if (isFatalScanError(lastError)) {
@@ -4487,7 +6127,11 @@
         return;
       }
       state.lastScan = scan;
+      state.activityEntries = loadActivity(void 0, state.viewer.handle);
+      state.activityScan = loadActivityScan(void 0, state.viewer.handle);
+      state.activeTab = "nonFollowers";
       state.users = dedupeUsers(scan.users || []);
+      hydrateActivityCounters(state);
       state.unverified = Boolean(scan.unverified);
       state.source = scan.source || "api";
       state.scan = {
@@ -4510,6 +6154,227 @@
         })
       );
     }
+    async function startActivityScan() {
+      if (state.active.running || state.disposed) return;
+      if (!(state.users || []).some((user) => user && user.handle)) {
+        ui.toast(t()("activityNeedsScan"));
+        return;
+      }
+      if (Date.now() < Number(state.cooldownUntil)) {
+        ui.toast(
+          t()("cooldownIn", { time: formatClock(state.cooldownUntil) })
+        );
+        return;
+      }
+      const session = ensureSession();
+      if (!session) return;
+      const candidates = state.users.filter((user) => {
+        if (!user || !user.handle) return false;
+        const entry = activityEntryFor(state.activityEntries, user);
+        if (entry?.reason === "template") return true;
+        return !isActivityFresh(entry);
+      });
+      if (!candidates.length) {
+        state.activeTab = "inactive";
+        state.mode = "results";
+        state.activityScan = null;
+        clearActivityScan(void 0);
+        hydrateActivityCounters(state);
+        ui.render();
+        ui.toast(t()("activityFresh"));
+        return;
+      }
+      state.activeTab = "inactive";
+      state.mode = "results";
+      state.error = "";
+      state.paused = false;
+      state.cooldownUntil = 0;
+      state.scanPauseUntil = 0;
+      state.activity = {
+        ...idleActivity(),
+        status: "scanning",
+        total: candidates.length,
+        source: "lookup",
+        startedAt: Date.now()
+      };
+      state.activityScan = {
+        viewerHandle: state.viewer.handle,
+        startedAt: Date.now(),
+        checked: 0,
+        total: candidates.length,
+        complete: false,
+        stopped: null
+      };
+      saveActivityScan(void 0, state.activityScan);
+      state.active = {
+        running: true,
+        paused: false,
+        cancelled: false,
+        abort: new AbortController(),
+        wake: null,
+        job: "activity"
+      };
+      activityCacheWarned = false;
+      lastActivityPersistAt = 0;
+      ui.render();
+      const onResult = (user, entry) => {
+        if (state.disposed) return;
+        const key = String(entry.id || user.handle.toLowerCase());
+        const handleKey = String(user.handle || "").toLowerCase();
+        if (entry.id && state.activityEntries[handleKey]) {
+          delete state.activityEntries[handleKey];
+        }
+        state.activityEntries[key] = entry;
+        if (!user.id && entry.id) user.id = entry.id;
+        state.activity.checked = (Number(state.activity.checked) || 0) + 1;
+        state.activity.current = user.handle;
+        state.activity.source = entry.source || state.activity.source;
+        if (entry.state === "unknown") {
+          state.activity.unknown = (Number(state.activity.unknown) || 0) + 1;
+        } else if (classifyActivity(entry, state.activityDays) === "inactive") {
+          state.activity.inactive = (Number(state.activity.inactive) || 0) + 1;
+        }
+        scheduleActivityUi();
+      };
+      const onProgress = (event) => {
+        if (state.disposed) return;
+        if (event.kind === "delay") {
+          state.activity.nextAt = Date.now() + Number(event.ms || 0);
+          scheduleActivityUi();
+          return;
+        }
+        if (event.kind === "pause") {
+          state.scanPauseUntil = Date.now() + Number(event.ms || 0);
+          scheduleActivityUi();
+          return;
+        }
+        if (event.kind === "paused") {
+          if (state.activity.status !== "paused") {
+            state.activity.status = "paused";
+            scheduleActivityUi(true);
+          }
+          return;
+        }
+        if (event.kind === "fallback") {
+          state.activity.source = "graphql";
+          ui.toast(t()("activityFallback"));
+          scheduleActivityUi(true);
+          return;
+        }
+        if (event.kind === "template-broken") {
+          ui.toast(t()("activityGraphqlHint"));
+          return;
+        }
+        if (event.kind === "checkpoint") {
+          persistActivity();
+          scheduleActivityUi(true);
+          return;
+        }
+        if (event.kind === "result") {
+          state.activity.source = event.source || state.activity.source;
+          scheduleActivityUi();
+        }
+      };
+      try {
+        const result = await runActivityScan({
+          users: candidates,
+          cache: state.activityEntries,
+          days: state.activityDays,
+          csrf: session.csrf,
+          origin: session.origin,
+          template: getCapturedActivity(),
+          fetchImpl: globalThis.fetch,
+          sleepFn: (ms) => activeSleep(ms),
+          random: Math.random,
+          timings: state.timings,
+          onResult,
+          onProgress,
+          shouldPause: () => state.active.paused,
+          shouldCancel: () => state.active.cancelled,
+          signal: state.active.abort.signal
+        });
+        if (state.disposed) return;
+        const summary = activitySummary(state);
+        const templateStopped = result.stopped === "template";
+        state.activity.status = templateStopped ? "error" : "done";
+        state.activity.nextAt = 0;
+        state.scanPauseUntil = 0;
+        state.activity.checked = summary.checked;
+        state.activity.total = summary.total;
+        state.activity.inactive = summary.inactive;
+        state.activity.unknown = summary.unknown;
+        state.activity.source = result.source || state.activity.source;
+        if (templateStopped) {
+          state.activity.error = t()("activityGraphqlHint");
+          if (state.activityScan) {
+            state.activityScan.checked = state.activity.checked;
+            state.activityScan.stopped = "template";
+          }
+        } else {
+          state.activityScan = null;
+          clearActivityScan(void 0);
+        }
+        persistActivity(true);
+        state.active.running = false;
+        state.active.paused = false;
+        state.active.wake = null;
+        state.active.job = null;
+        state.paused = false;
+        ui.render();
+        if (!templateStopped) {
+          ui.toast(
+            t()("activityDoneToast", { count: state.activity.inactive })
+          );
+        }
+      } catch (error) {
+        if (state.disposed) return;
+        state.active.running = false;
+        state.active.paused = false;
+        state.active.wake = null;
+        state.active.job = null;
+        state.paused = false;
+        state.activity.nextAt = 0;
+        state.scanPauseUntil = 0;
+        const aborted = state.active.cancelled || error?.kind === "aborted";
+        if (aborted) {
+          state.activity.status = "idle";
+          state.activity.error = "";
+          if (state.activityScan) state.activityScan.stopped = "cancel";
+        } else {
+          state.activity.status = "error";
+          if (error?.kind === "rate") {
+            state.cooldownUntil = Number(error.resetAt) || Date.now() + Number(error.retryAfter || COOLDOWN_MS.rate);
+            state.activity.error = t()("tooManyRequests", {
+              time: formatClock(state.cooldownUntil)
+            });
+          } else if (error?.kind === "auth") {
+            state.activity.error = t()("sessionExpired");
+          } else if (error?.kind === "blocked") {
+            state.activity.error = t()("scanBlocked");
+          } else if (error?.kind === "network") {
+            state.activity.error = t()("networkError");
+          } else {
+            state.activity.error = t()("unknownError");
+          }
+          if (state.activityScan) {
+            state.activityScan.stopped = error?.kind || "error";
+          }
+        }
+        persistActivity(true);
+        ui.render();
+      }
+    }
+    function clearActivityData() {
+      if (state.active.running) return;
+      state.activityEntries = {};
+      state.activityScan = null;
+      state.activity = idleActivity();
+      state.selected = /* @__PURE__ */ new Set();
+      clearActivity(void 0);
+      clearActivityScan(void 0);
+      ui.render();
+      ui.toast(t()("activityCleared"));
+    }
     async function startUnfollow() {
       if (state.active.running || state.disposed) return;
       if (!canUnfollow(state)) {
@@ -4529,7 +6394,12 @@
         ui.toast(t()("noSelection"));
         return;
       }
-      if (selected.some((user) => user.followsViewer !== false)) {
+      if (state.activeTab === "inactive") {
+        if (selected.some((user) => typeof user.followsViewer !== "boolean")) {
+          ui.toast(t()("unverified"));
+          return;
+        }
+      } else if (selected.some((user) => user.followsViewer !== false)) {
         ui.toast(t()("unverified"));
         return;
       }
@@ -4560,7 +6430,8 @@
         paused: false,
         cancelled: false,
         abort: new AbortController(),
-        wake: null
+        wake: null,
+        job: "unfollow"
       };
       ui.render();
       const ctx = {
@@ -4590,6 +6461,10 @@
             const key = keyOf(event.user);
             state.users = state.users.filter((user) => keyOf(user) !== key);
             state.selected.delete(key);
+            delete state.activityEntries[key];
+            delete state.activityEntries[String(event.user.handle || "").toLowerCase()];
+            refreshActivityCounters(state);
+            saveActivityCache();
           }
           state.unfollow.log.push({
             handle: event.user?.handle || "",
@@ -4650,6 +6525,7 @@
       state.active.running = false;
       state.active.paused = false;
       state.active.wake = null;
+      state.active.job = null;
       state.paused = false;
       state.unfollow.ok = Number(output.ok) || 0;
       state.unfollow.fail = Number(output.fail) || 0;
@@ -4685,7 +6561,16 @@
         return;
       }
       if (action === "save-settings") {
-        state.timings = normalizeTimings(payload || state.timings);
+        const { activityDays, ...timingPayload } = payload || {};
+        state.timings = normalizeTimings(
+          Object.keys(timingPayload).length ? timingPayload : state.timings
+        );
+        state.activityDays = clamp(
+          Number(activityDays) || state.activityDays,
+          ACTIVITY_MIN_DAYS,
+          ACTIVITY_MAX_DAYS
+        );
+        if (!state.active.running) refreshActivityCounters(state);
         persist(state);
         ui.toast(t()("settingsSaved"));
         return;
@@ -4722,6 +6607,42 @@
       }
       if (action === "cancel-scan") {
         cancelScan();
+        return;
+      }
+      if (action === "start-activity") {
+        startActivityScan();
+        return;
+      }
+      if (action === "pause-activity") {
+        if (state.active.job === "activity" && state.active.running) {
+          state.active.paused = true;
+          state.paused = true;
+          state.activity.status = "paused";
+          state.activity.nextAt = 0;
+          state.active.wake?.();
+          ui.update();
+        }
+        return;
+      }
+      if (action === "resume-activity") {
+        if (state.active.job !== "activity") return;
+        state.active.paused = false;
+        state.paused = false;
+        state.activity.status = "scanning";
+        ui.update();
+        return;
+      }
+      if (action === "cancel-activity") {
+        if (state.active.job !== "activity") return;
+        state.active.cancelled = true;
+        state.active.paused = false;
+        state.active.wake?.();
+        state.active.abort?.abort();
+        ui.toast(t()("cancel"));
+        return;
+      }
+      if (action === "clear-activity") {
+        clearActivityData();
         return;
       }
       if (action === "start-unfollow") {
@@ -4784,6 +6705,11 @@
         const wasPaused = state.paused || state.active.paused;
         state.active.paused = true;
         state.paused = true;
+        if (state.active.job === "activity") {
+          state.activity.status = "paused";
+          state.activity.nextAt = 0;
+          state.active.wake?.();
+        }
         if (!wasPaused) ui.toast(t()("keepTabVisible"));
         if (state.mode === "unfollowing") ui.update();
         else ui.render();
@@ -4791,11 +6717,14 @@
     }
     const cleanup = () => {
       if (state.disposed) return;
+      if (state.active.job === "activity") persistActivity(true);
       state.disposed = true;
       state.active.cancelled = true;
       state.active.wake?.();
       state.active.abort?.abort();
       clearTimeout(pauseTimer);
+      clearTimeout(activityUiTimer);
+      activityUiTimer = null;
       document.removeEventListener("visibilitychange", onVisibility);
       uninstallCapture();
       appearance.stop();

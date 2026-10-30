@@ -12,6 +12,7 @@ Bu resmî olmayan bir topluluk aracıdır. X Corp. ile bağlantılı değildir. 
 
 - Kendi Takip Edilenler listeni X'in web oturumu üzerinden okur.
 - Geri takip verilerini karşılaştırır ve `followed_by` bayrağı false olan hesapları listeler.
+- Takip ettiğin hesaplar arasında son 30 günde gönderi, retweet veya yanıt paylaşmayanları ayrı bir "Pasif hesaplar" sekmesinde listeler.
 - Arama, filtreler, seçim, kopyalama, gizleme/gösterme, kontrol noktası/devam etme, son taramayı geri yükleme, TR/EN arayüz ve kalıcı ayarlar sunar.
 - Yalnızca açık bir onaydan sonra takipten çıkarır; çalıştırma başına üst sınır, rastgele gecikmeler, uzun duraklamalar ve hız sınırı durdurmaları uygular.
 - Tarama sırasında hesabını asla değiştirmez. Tarama salt okunurdur.
@@ -97,6 +98,16 @@ Panel görünmezse x.com üzerinde olduğunu kontrol et ve Console'da hata olup 
 - Hata, nedeni gösterir ve mantıklı olduğunda yeniden deneme/devam etme seçeneği sunar.
 - Paneli kapatmak arayüzünü ve istek kancalarını kaldırır. Yeniden açmak için script'i tekrar yapıştır.
 
+### Pasif hesaplar
+
+- Takip taraması bittikten sonra sonuç ekranında **Takip etmeyenler** ve **Pasif hesaplar** sekmeleri görünür.
+- **Aktivite taramasını başlat** takip ettiğin tüm hesapları kontrol eder. Tarama otomatik başlamaz.
+- X'in toplu kullanıcı kontrolü 10 hesap/istek olarak yapılır; istekler arasında 1,5–2,5 saniye beklenir ve her 10 istekte yaklaşık 10 saniye duraklanır.
+- Toplu kontrol kullanılamazsa hesap başına `UserTweetsAndReplies` sorgusuna geçilir; bu yol daha yavaştır ve arayüzde **Profil** etiketiyle gösterilir.
+- Son 30 günde gönderi, retweet veya yanıt yoksa hesap pasiftir. Hiç gönderisi olmayanlar da pasif sayılır.
+- Veri okunamayan hesaplar pasif sayılmaz; **Kontrol edilemedi** bölümünde gösterilir ve takipten çıkarılamaz.
+- Pasif sekmeden takipten çıkarma aynı güvenli kuyruğu kullanır. Seçilenler arasında seni takip eden varsa onay penceresi uyarır.
+
 ---
 
 ## Tarama nasıl çalışır?
@@ -148,6 +159,14 @@ Takipten çıkarma şu durumlarda kapalıdır:
 
 Takip Edilenler sayfasında, İngilizce veya Türkçe olarak, sekme görünürken yeniden tara. API yolu genellikle en güvenilir kapsamı sağlar.
 
+### Aktivite taraması sınırları
+
+- Toplu kontrol: 10 hesap/istek.
+- İstek gecikmesi: 1,5–2,5 saniye; her 10 istekte yaklaşık 10 saniye duraklama.
+- `429` durur ve bekleme saatini gösterir; `401`/`403` oturum/engel mesajıyla durur.
+- Hesap başına yedek sorgu yalnızca toplu kontrol eksik veri döndürdüğünde çalışır.
+- Aktivite taraması salt okunurdur; bu aşamada hiçbir hesap takipten çıkarılmaz.
+
 ---
 
 ## Veri ve gizlilik
@@ -158,6 +177,9 @@ Takip Edilenler sayfasında, İngilizce veya Türkçe olarak, sekme görünürke
 - Kontrol noktaları ve son taramalar 24 saat sonra sona erer ve algılanan kullanıcı adı değişirse yok sayılır.
 - Yakalanan GraphQL şablonu yalnızca bellekte yaşar ve sayfa yenilendiğinde veya kapatıldığında atılır.
 - Paneli kapatmak olay dinleyicilerini kaldırır ve yamalanmış `fetch` / `XMLHttpRequest` yöntemlerini geri yükler.
+- Aktivite kayıtları `ux_activity_v1`, yarım kalan tarama `ux_activity_scan_v1` anahtarlarıyla yalnızca yerel `localStorage`'da tutulur.
+- Kayıtlarda yalnızca son gönderi zamanı, kontrol zamanı, durum ve kaynak bulunur; tweet metni, bio veya medya saklanmaz.
+- Aktivite kayıtları 24 saat sonra düşer ve görüntüleyen hesaba bağlıdır. **Aktivite verilerini temizle** ile anında silinebilir.
 
 ---
 
@@ -231,6 +253,14 @@ Yeniden denemeden önce hata nedenini ve bekleme bildirimini kontrol et.
 
 Kontrol noktaları ve son taramalar 24 saat sonra sona erer ve algılanan kullanıcı adına bağlıdır. Hesap değiştirdiysen veya kullanıcı adı algılama değiştiyse eski veriler bilinçli olarak yok sayılır.
 
+### Aktivite taraması çok yavaş
+
+Toplu kontrol kullanılamıyor olabilir; arayüzde **Profil** etiketi görünür. Bu durumda her hesap için ayrı sorgu yapılır. Hız limitine takılmamak için sekmeyi görünür tut ve taramayı duraklatıp devam et.
+
+### "Kontrol edilemedi" hesaplar
+
+Hesap suspended/korumalı olabilir, kimlik bilgisi eksik olabilir veya X sorgu şekli değişmiş olabilir. Bir profilin **Yanıtlar** sekmesini bir kez açıp taramayı tekrar dene. Bu hesaplar bilinçli olarak pasif sayılmaz.
+
 ---
 
 ## Geliştirme
@@ -269,6 +299,9 @@ Otomatik test paketi gerçek tarayıcı testinin yerini tutmaz. X'in canlı ön 
 - Yeniden yüklemeden sonra devam etmek, yakalanan sayfalama imleci yedek şablonla yeniden kullanılamıyorsa baştan tarayabilir. Birleştirme yinelenenleri ayıklar, bu yüzden daha yavaş ama güvenlidir.
 - Araç masaüstü odaklıdır. Mobil düzenler ve olağandışı X denemeleri garanti edilmez.
 - Toplu otomasyon doğası gereği risklidir. Varsayılanlar temkinlidir, garanti değildir.
+- Aktivite kontrolü X'in `users/lookup` ucuna ve yedek olarak `UserTweetsAndReplies` sorgusuna bağlıdır; X bunları haber vermeden değiştirebilir.
+- Son gönderi zamanı yalnızca gönderi/retweet/yanıtı kapsar; beğeni veya yalnızca oturum açma aktivite sayılmaz.
+- 10.000 hesap için toplu modda bile tarama uzun sürebilir; ilerleme, cache ve devam desteği vardır.
 
 ---
 

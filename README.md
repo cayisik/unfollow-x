@@ -12,6 +12,7 @@ This is an unofficial community tool. It is not affiliated with X Corp. Automati
 
 - Reads your own Following list through X's web session.
 - Compares follow-back data and lists accounts whose `followed_by` flag is false.
+- Lists accounts you follow that have not posted, reposted, or replied in the last 30 days in a separate "Inactive" tab.
 - Provides search, filters, selection, copy, hide/show, checkpoint/resume, last-scan restore, TR/EN UI, and persistent settings.
 - Unfollows only after an explicit confirmation, with a per-run cap, randomized delays, long pauses, and rate-limit stops.
 - Never changes your account during a scan. Scanning is read-only.
@@ -101,6 +102,16 @@ If the panel does not appear, check that you are on x.com and look for an error 
 - Error shows the reason and offers retry/resume where it makes sense.
 - Closing the panel removes its UI and request hooks. Paste the script again to reopen it.
 
+### Inactive accounts
+
+- After the following scan, the results view shows **Non-followers** and **Inactive** tabs.
+- **Start activity scan** checks every account you follow. The scan never starts automatically.
+- X's batch lookup is called with 10 accounts per request; requests wait 1.5–2.5 seconds and pause for about 10 seconds every 10 requests.
+- If batch lookup is unavailable, the tool falls back to per-account `UserTweetsAndReplies` queries; this is slower and is labeled **Profile** in the UI.
+- An account is inactive when it has no post, repost, or reply in the last 30 days. Accounts with no posts at all are also inactive.
+- Accounts whose activity cannot be read are not treated as inactive; they appear in a separate **Could not check** section and cannot be unfollowed.
+- Unfollowing from the inactive tab uses the same safe queue. If selected accounts follow you back, the confirmation dialog warns you.
+
 ---
 
 ## How scanning works
@@ -152,6 +163,14 @@ Unfollowing is disabled when:
 
 Rescan on the Following page, in English or Turkish, with the tab visible. The API path usually gives the most reliable coverage.
 
+### Activity scan limits
+
+- Batch check: 10 accounts per request.
+- Request delay: 1.5–2.5 seconds; a pause of about 10 seconds every 10 requests.
+- `429` stops and shows the reset time; `401`/`403` stop with a session/block message.
+- The per-account fallback runs only when batch lookup returns incomplete data.
+- The activity scan is read-only; nothing is unfollowed during this phase.
+
 ---
 
 ## Data and privacy
@@ -162,6 +181,9 @@ Rescan on the Following page, in English or Turkish, with the tab visible. The A
 - Checkpoints and last scans expire after 24 hours and are ignored if the detected handle changes.
 - The captured GraphQL template lives only in memory and is discarded on reload or close.
 - Closing the panel removes its event listeners and restores the patched `fetch` / `XMLHttpRequest` methods.
+- Activity records are stored only in local `localStorage` under `ux_activity_v1`; an interrupted scan uses `ux_activity_scan_v1`.
+- Records contain only the last post time, check time, state, and source; no tweet text, bio, or media is stored.
+- Activity records expire after 24 hours, are bound to the viewing account, and can be removed immediately with **Clear activity data**.
 
 ---
 
@@ -235,6 +257,14 @@ Check the failure reason and the cooldown notice before retrying.
 
 Checkpoints and last scans expire after 24 hours and are tied to the detected handle. If you changed accounts or the handle detection changed, the old data is intentionally ignored.
 
+### Activity scan is very slow
+
+Batch lookup may be unavailable; the UI shows the **Profile** badge. In that mode each account is queried separately. Keep the tab visible and pause/resume if you hit rate limits.
+
+### "Could not check" accounts
+
+The account may be suspended/protected, the user ID may be missing, or X may have changed its query shape. Open any profile's **Replies** tab once, then retry the scan. These accounts are intentionally not treated as inactive.
+
 ---
 
 ## Development
@@ -273,6 +303,9 @@ The automated suite does not replace a real browser test. X's live frontend, coo
 - Resuming after a reload may rescan from the beginning if the captured cursor cannot be reused with a fallback template. The merge is deduplicated, so this is slower but safe.
 - The tool is desktop-oriented. Mobile layouts and unusual X experiments are not guaranteed.
 - Bulk automation is inherently risky. The defaults are conservative, not a guarantee.
+- Activity checks depend on X's `users/lookup` endpoint and the `UserTweetsAndReplies` fallback; X can change either without notice.
+- The last post timestamp covers posts, reposts, and replies only; likes or login-only activity are not counted.
+- Large lists (up to 10,000 accounts) can take a long time even in batch mode; progress, cache, and resume support are provided.
 
 ---
 

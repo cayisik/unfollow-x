@@ -1,6 +1,6 @@
 {
   "name": "unfollow-x",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "A single-file console tool that finds and unfollows X accounts that do not follow you back.",
   "type": "module",
