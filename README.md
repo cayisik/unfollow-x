@@ -108,7 +108,7 @@ If the panel does not appear, check that you are on x.com and look for an error 
 - **Start activity scan** checks every account you follow. The scan never starts automatically.
 - X's batch lookup is called with 10 accounts per request; requests wait 1.5–2.5 seconds and pause for about 10 seconds every 10 requests.
 - If batch lookup is unavailable, the tool falls back to per-account `users/show`; if that is unavailable or ambiguous, it uses per-account `UserTweetsAndReplies` queries. Both paths are slower and are labeled **Profile** in the UI.
-- Several known `UserTweetsAndReplies` query IDs are tried before giving up. Opening a profile's Replies tab still captures the live query as the most reliable path.
+- Several known `UserTweetsAndReplies` query IDs are tried only when no live request was captured; a captured template is used as-is. Opening a profile's Replies tab still captures the live query as the most reliable path.
 - An account is inactive when it has no post, repost, or reply in the inactivity window. The window is configurable in Settings from **1 to 365 days** (default **30**). Accounts with no posts at all are also inactive.
 - Accounts whose activity cannot be read are not treated as inactive; they appear in a separate **Could not check** section and cannot be unfollowed.
 - Unfollowing from the inactive tab uses the same safe queue. If selected accounts follow you back, the confirmation dialog warns you.
@@ -306,7 +306,7 @@ The automated suite does not replace a real browser test. X's live frontend, coo
 - Resuming after a reload may rescan from the beginning if the captured cursor cannot be reused with a fallback template. The merge is deduplicated, so this is slower but safe.
 - The tool is desktop-oriented. Mobile layouts and unusual X experiments are not guaranteed.
 - Bulk automation is inherently risky. The defaults are conservative, not a guarantee.
-- Activity checks depend on X's `users/lookup` endpoint and the `UserTweetsAndReplies` fallback; X can change either without notice.
+- Activity checks depend on X's `users/lookup`, `users/show`, and `UserTweetsAndReplies` endpoints; X can change any of them without notice.
 - The last post timestamp covers posts, reposts, and replies only; likes or login-only activity are not counted.
 - Large lists (up to 10,000 accounts) can take a long time even in batch mode; progress, cache, and resume support are provided.
 

@@ -14,7 +14,13 @@
   var ACTIVITY_DEFAULT_DAYS = 30;
   var ACTIVITY_MIN_DAYS = 1;
   var ACTIVITY_MAX_DAYS = 365;
-  var ACTIVITY_QUERY_ID = "M9Tz6NGTHeRzqHOPdj9I7g";
+  var ACTIVITY_QUERY_IDS = [
+    "ekwzBXpJcRI38DI6gJk_OQ",
+    "Vg5aF036K40ST3FWvnvRGA",
+    "_dEwIMW2hHUTejaIafUiLA",
+    "M9Tz6NGTHeRzqHOPdj9I7g"
+  ];
+  var ACTIVITY_QUERY_ID = ACTIVITY_QUERY_IDS[0];
   var ACTIVITY_FEATURES = {
     articles_preview_enabled: true,
     c9s_tweet_anatomy_moderator_badge_enabled: true,
@@ -2470,6 +2476,36 @@
       }
     };
   }
+  function buildShowUserRequest({
+    userId = "",
+    screenName = "",
+    csrf = "",
+    origin = ""
+  } = {}) {
+    const id = String(userId || "").trim();
+    const handle = String(screenName || "").trim().replace(/^@/, "");
+    if (!id && !handle) {
+      throw makeError2("format", "show requires user_id or screen_name");
+    }
+    const url = new URL("/i/api/1.1/users/show.json", originOf2(origin));
+    if (id) url.searchParams.set("user_id", id);
+    else url.searchParams.set("screen_name", handle);
+    url.searchParams.set("include_entities", "true");
+    url.searchParams.set("tweet_mode", "extended");
+    return {
+      url: url.toString(),
+      init: {
+        method: "GET",
+        headers: authHeaders3(csrf, false),
+        credentials: "include"
+      }
+    };
+  }
+  function parseShowUser(json) {
+    const raw = Array.isArray(json) ? json[0] : json?.user || json;
+    if (!raw || typeof raw !== "object") return null;
+    return parseLookupUsers([raw]).items[0] || null;
+  }
   function buildActivityRequest(template, { userId = "", count = 20, csrf = "", origin = "" } = {}) {
     if (!template) throw makeError2("format", "No activity template");
     const method = String(template.method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
@@ -2522,7 +2558,7 @@
       }
     };
   }
-  function buildDefaultActivityTemplate() {
+  function buildDefaultActivityTemplate(queryId = ACTIVITY_QUERY_ID) {
     const variables = {
       userId: "",
       count: 20,
@@ -2532,18 +2568,21 @@
       withV2Timeline: true
     };
     return {
-      url: `https://x.com/i/api/graphql/${ACTIVITY_QUERY_ID}/UserTweetsAndReplies`,
+      url: `https://x.com/i/api/graphql/${queryId}/UserTweetsAndReplies`,
       method: "GET",
       headers: {},
       body: "",
       variables,
       features: ACTIVITY_FEATURES,
       fieldToggles: { withArticlePlainText: false },
-      queryId: ACTIVITY_QUERY_ID,
+      queryId,
       operationName: "UserTweetsAndReplies",
       capturedAt: 0,
       responseSample: null
     };
+  }
+  function buildDefaultActivityTemplates() {
+    return ACTIVITY_QUERY_IDS.map((id) => buildDefaultActivityTemplate(id));
   }
   function abortError() {
     return makeError2("aborted", "Aborted");
@@ -2572,6 +2611,7 @@
       csrf = "",
       origin = "",
       template = null,
+      templates = null,
       fetchImpl = globalThis.fetch,
       sleepFn = sleep,
       random = Math.random,
@@ -2619,9 +2659,11 @@
     let unknown = 0;
     let requests = 0;
     let lookupMode = Boolean(lookup);
+    let showMode = false;
     let currentSource = lookupMode ? "lookup" : "graphql";
     let graphqlBroken = false;
-    let defaultTemplate = template || null;
+    const templateList = Array.isArray(templates) && templates.length ? templates : template ? [template] : buildDefaultActivityTemplates();
+    let templateIndex = 0;
     const check = () => {
       if (signal?.aborted || shouldCancel?.()) throw abortError();
     };
@@ -2717,6 +2759,14 @@
         });
       }
     };
+    const advanceTemplate = () => {
+      if (templateIndex < templateList.length - 1) {
+        templateIndex += 1;
+        onProgress({ kind: "template-retry", checked, total, source: currentSource });
+        return true;
+      }
+      return false;
+    };
     const breakGraphql = (user) => {
       graphqlBroken = true;
       processEntry(user, {
@@ -2793,21 +2843,85 @@
         processEntry(user, { state: "unknown", reason: "no-id", source: "graphql" });
         return;
       }
-      if (!defaultTemplate) defaultTemplate = buildDefaultActivityTemplate();
-      let request;
-      try {
-        request = buildActivityRequest(defaultTemplate, {
-          userId: user.id,
-          count: 20,
-          csrf,
-          origin
-        });
-      } catch (error) {
-        if (error.kind === "format") {
+      while (true) {
+        let request;
+        try {
+          request = buildActivityRequest(templateList[templateIndex], {
+            userId: user.id,
+            count: 20,
+            csrf,
+            origin
+          });
+        } catch (error) {
+          if (error.kind === "format") {
+            if (advanceTemplate()) continue;
+            breakGraphql(user);
+            return;
+          }
+          throw error;
+        }
+        await pace();
+        let json;
+        try {
+          json = await fetchJson(request.url, request.init, {
+            fetchImpl,
+            signal,
+            sleepFn
+          });
+        } catch (error) {
+          if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
+            processEntry(user, {
+              state: "unknown",
+              reason: "unavailable",
+              source: "graphql"
+            });
+            return;
+          }
+          if (error.kind === "format" && [400, 404, 405, 410].includes(Number(error.status))) {
+            if (advanceTemplate()) continue;
+            breakGraphql(user);
+            return;
+          }
+          throw error;
+        }
+        const parsed = parseUserTweetsPage(json, user.id);
+        if (parsed.fatalKind === "template") {
+          if (advanceTemplate()) continue;
           breakGraphql(user);
           return;
         }
-        throw error;
+        if (parsed.fatalKind) {
+          throw makeError2(parsed.fatalKind, parsed.reason || parsed.fatalKind, {
+            status: 200,
+            body: json,
+            retryAfter: 0
+          });
+        }
+        processEntry(user, { ...parsed, source: "graphql" });
+        return;
+      }
+    };
+    const showUser = async (user) => {
+      if (!showMode) {
+        await graphqlUser(user);
+        return;
+      }
+      let request;
+      try {
+        request = user.id ? buildShowUserRequest({ userId: user.id, csrf, origin }) : buildShowUserRequest({ screenName: user.handle, csrf, origin });
+      } catch (error) {
+        if (error.kind !== "format") throw error;
+        showMode = false;
+        currentSource = "graphql";
+        onProgress({
+          kind: "fallback",
+          to: "graphql",
+          reason: error.message,
+          checked,
+          total
+        });
+        await graphqlUser(user);
+        return;
       }
       await pace();
       let json;
@@ -2818,33 +2932,57 @@
           sleepFn
         });
       } catch (error) {
+        if (Number(error.status) === 403 && isUserLevelGraphqlError(error)) {
+          processEntry(user, {
+            state: "unknown",
+            reason: "unavailable",
+            source: "show"
+          });
+          return;
+        }
+        if (isLookupUnsupported(error)) {
+          showMode = false;
+          currentSource = "graphql";
+          onProgress({
+            kind: "fallback",
+            to: "graphql",
+            reason: error.message,
+            checked,
+            total
+          });
+          await graphqlUser(user);
+          return;
+        }
         if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
           processEntry(user, {
             state: "unknown",
             reason: "unavailable",
-            source: "graphql"
+            source: "show"
           });
-          return;
-        }
-        if (error.kind === "format" && [400, 404, 405, 410].includes(Number(error.status))) {
-          breakGraphql(user);
           return;
         }
         throw error;
       }
-      const parsed = parseUserTweetsPage(json, user.id);
-      if (parsed.fatalKind === "template") {
-        breakGraphql(user);
+      const item = parseShowUser(json);
+      if (!item) {
+        showMode = false;
+        currentSource = "graphql";
+        onProgress({
+          kind: "fallback",
+          to: "graphql",
+          reason: "invalid show response",
+          checked,
+          total
+        });
+        await graphqlUser(user);
         return;
       }
-      if (parsed.fatalKind) {
-        throw makeError2(parsed.fatalKind, parsed.reason || parsed.fatalKind, {
-          status: 200,
-          body: json,
-          retryAfter: 0
-        });
+      if (!user.id && item.id) user.id = String(item.id);
+      if (item.state === "known") {
+        processEntry(user, { ...item, source: "show" });
+        return;
       }
-      processEntry(user, { ...parsed, source: "graphql" });
+      await graphqlUser(user);
     };
     onProgress({ kind: "start", total, source: currentSource });
     if (!total) {
@@ -2895,17 +3033,18 @@
         } catch (error) {
           if (error.kind === "lookup-unsupported") {
             lookupMode = false;
-            currentSource = "graphql";
+            showMode = true;
+            currentSource = "show";
             onProgress({
               kind: "fallback",
-              to: "graphql",
+              to: "show",
               reason: error.message,
               checked,
               total
             });
             for (const user of batch) {
               await waitWhilePaused();
-              await graphqlUser(user);
+              await showUser(user);
             }
             continue;
           }
@@ -2915,6 +3054,10 @@
           await waitWhilePaused();
           await graphqlUser(user);
         }
+      } else if (showMode) {
+        const user = takeOne();
+        await waitWhilePaused();
+        await showUser(user);
       } else {
         const user = takeOne();
         await waitWhilePaused();
@@ -3730,7 +3873,7 @@
     <div class="ux-card-line"><span class="ux-live-dot${paused ? " is-paused" : ""}" data-activity-dot></span><strong data-activity-status>${escapeHTML(
       paused ? t("paused") : t("activityScanning")
     )}</strong><span class="ux-muted" data-activity-source>${escapeHTML(
-      activity.source === "graphql" ? t("activitySourceProfile") : t("activitySourceBatch")
+      activity.source === "graphql" || activity.source === "show" ? t("activitySourceProfile") : t("activitySourceBatch")
     )}</span></div>
     <div class="ux-bar"><i data-activity-bar style="width:${percent}%"></i></div>
     <div class="ux-card-line"><span data-activity-current>${escapeHTML(
@@ -4755,7 +4898,7 @@
       }
       const source = root.querySelector("[data-activity-source]");
       if (source) {
-        source.textContent = state.activity?.source === "graphql" ? t()("activitySourceProfile") : t()("activitySourceBatch");
+        source.textContent = state.activity?.source === "graphql" || state.activity?.source === "show" ? t()("activitySourceProfile") : t()("activitySourceBatch");
       }
       const paused = state.activity?.status === "paused";
       const status = root.querySelector("[data-activity-status]");
@@ -6302,7 +6445,7 @@
           return;
         }
         if (event.kind === "fallback") {
-          state.activity.source = "graphql";
+          state.activity.source = event.to === "show" ? "show" : "graphql";
           ui.toast(t()("activityFallback"));
           scheduleActivityUi(true);
           return;

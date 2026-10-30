@@ -534,10 +534,34 @@ test("buildShowUserRequest builds the v1.1 show endpoint", () => {
   assert.equal(request.init.credentials, "include");
 });
 
-test("buildShowUserRequest requires a user id", () => {
+test("buildShowUserRequest accepts a screen name", () => {
+  const request = buildShowUserRequest({
+    screenName: "@alice",
+    csrf: "token",
+    origin: "https://x.com",
+  });
+  const url = new URL(request.url);
+  assert.equal(url.pathname, "/i/api/1.1/users/show.json");
+  assert.equal(url.searchParams.get("screen_name"), "alice");
+  assert.equal(url.searchParams.get("user_id"), null);
+});
+
+test("buildShowUserRequest prefers the user id over a screen name", () => {
+  const request = buildShowUserRequest({
+    userId: "42",
+    screenName: "alice",
+    origin: "https://x.com",
+  });
+  const url = new URL(request.url);
+  assert.equal(url.searchParams.get("user_id"), "42");
+  assert.equal(url.searchParams.get("screen_name"), null);
+});
+
+test("buildShowUserRequest requires a selector", () => {
   assert.throws(
     () => buildShowUserRequest({}),
-    (error) => error.kind === "format" && /user_id/.test(error.message)
+    (error) =>
+      error.kind === "format" && /user_id or screen_name/.test(error.message)
   );
 });
 
@@ -1229,4 +1253,226 @@ test("runActivityScan stops when every default template is broken", async () => 
   assert.ok(
     results.every((entry) => entry.state === "unknown" && entry.reason === "template")
   );
+});
+
+const isShowUrl = (url) =>
+  new URL(String(url)).pathname.endsWith("/users/show.json");
+const isLookupUrl = (url) =>
+  new URL(String(url)).pathname.endsWith("/users/lookup.json");
+
+const showUserPayload = (id, overrides = {}) => ({
+  id_str: String(id),
+  screen_name: `u${id}`,
+  statuses_count: 4,
+  status: { created_at: "Thu Oct 29 10:00:00 +0000 2026" },
+  ...overrides,
+});
+
+const authorFor = (url) => {
+  const variables = JSON.parse(
+    new URL(String(url)).searchParams.get("variables") || "{}"
+  );
+  return variables.userId;
+};
+
+test("runActivityScan falls back to GraphQL on a show 400", async () => {
+  const calls = [];
+  const results = [];
+  const output = await runActivityScan({
+    users: [makeUser(1, "alice")],
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        return jsonResponse({ errors: [{ message: "User not found." }] }, 400);
+      }
+      return jsonResponse(authorPage(authorFor(url)));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(calls.filter(isShowUrl).length, 1);
+  assert.equal(output.source, "graphql");
+  assert.equal(output.checked, 1);
+  assert.equal(results[0].state, "known");
+  assert.equal(results[0].source, "graphql");
+});
+
+test("runActivityScan keeps a 403 show error per-user and stays on show", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const results = [];
+  let graphqlCalls = 0;
+  let showCalls = 0;
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        showCalls += 1;
+        const id = new URL(String(url)).searchParams.get("user_id");
+        if (id === "1") {
+          return jsonResponse(
+            { errors: [{ message: "User has been suspended" }] },
+            403
+          );
+        }
+        return jsonResponse(showUserPayload(id));
+      }
+      graphqlCalls += 1;
+      return jsonResponse(authorPage(authorFor(url)));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(showCalls, 2);
+  assert.equal(graphqlCalls, 0);
+  assert.equal(output.source, "show");
+  assert.equal(output.checked, 2);
+  assert.equal(results[0].state, "unknown");
+  assert.equal(results[0].reason, "unavailable");
+  assert.equal(results[0].source, "show");
+  assert.equal(results[1].state, "known");
+  assert.equal(results[1].source, "show");
+});
+
+test("runActivityScan keeps show mode after an ambiguous show user", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const results = [];
+  let graphqlCalls = 0;
+  let showCalls = 0;
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        showCalls += 1;
+        const id = new URL(String(url)).searchParams.get("user_id");
+        if (id === "1") {
+          return jsonResponse(
+            showUserPayload(1, { statuses_count: 5, status: undefined })
+          );
+        }
+        return jsonResponse(showUserPayload(id));
+      }
+      graphqlCalls += 1;
+      return jsonResponse(authorPage(authorFor(url)));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(showCalls, 2);
+  assert.equal(graphqlCalls, 1);
+  assert.equal(output.source, "show");
+  assert.equal(results.length, 2);
+  assert.equal(results[0].state, "known");
+  assert.equal(results[0].source, "graphql");
+  assert.equal(results[1].state, "known");
+  assert.equal(results[1].source, "show");
+});
+
+test("runActivityScan uses GraphQL for the rest after an invalid show body", async () => {
+  const users = [makeUser(1, "alice"), makeUser(2, "bob")];
+  const results = [];
+  let graphqlCalls = 0;
+  let showCalls = 0;
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        showCalls += 1;
+        return jsonResponse({ errors: [{ message: "nope" }] });
+      }
+      graphqlCalls += 1;
+      return jsonResponse(authorPage(authorFor(url)));
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(showCalls, 1);
+  assert.equal(graphqlCalls, 2);
+  assert.equal(output.source, "graphql");
+  assert.equal(output.checked, 2);
+  assert.ok(results.every((entry) => entry.source === "graphql"));
+  assert.ok(results.every((entry) => entry.state === "known"));
+});
+
+test("runActivityScan processes every user in the fallback show batch", async () => {
+  const users = Array.from({ length: 10 }, (_, index) =>
+    makeUser(index + 1, `u${index + 1}`)
+  );
+  const results = [];
+  let showCalls = 0;
+  const output = await runActivityScan({
+    users,
+    fetchImpl: async (url) => {
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        showCalls += 1;
+        const id = new URL(String(url)).searchParams.get("user_id");
+        return jsonResponse(showUserPayload(id));
+      }
+      throw new Error(`unexpected request: ${url}`);
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(showCalls, 10);
+  assert.equal(output.checked, 10);
+  assert.equal(output.unknown, 0);
+  assert.equal(results.length, 10);
+  assert.equal(new Set(results.map((entry) => entry.id)).size, 10);
+  assert.ok(
+    results.every((entry) => entry.state === "known" && entry.source === "show")
+  );
+});
+
+test("runActivityScan uses screen_name for handle-only show checks", async () => {
+  const user = { handle: "@alice", name: "alice", followsViewer: false };
+  const results = [];
+  const output = await runActivityScan({
+    users: [user],
+    fetchImpl: async (url) => {
+      if (isLookupUrl(url)) {
+        return jsonResponse({ errors: [{ message: "not found" }] }, 404);
+      }
+      if (isShowUrl(url)) {
+        const parsed = new URL(String(url));
+        assert.equal(parsed.searchParams.get("screen_name"), "alice");
+        assert.equal(parsed.searchParams.get("user_id"), null);
+        return jsonResponse(showUserPayload(42));
+      }
+      throw new Error(`unexpected request: ${url}`);
+    },
+    sleepFn: async () => {},
+    timings: ZERO_TIMINGS,
+    now: NOW,
+    onResult: (user, entry) => results.push(entry),
+  });
+  assert.equal(user.id, "42");
+  assert.equal(output.checked, 1);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].id, "42");
+  assert.equal(results[0].state, "known");
+  assert.equal(results[0].source, "show");
 });

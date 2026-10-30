@@ -957,6 +957,37 @@ test("activity live card shows scan progress and controls", () => {
   ui.destroy();
 });
 
+test("activity show source renders the Profile label", () => {
+  const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
+  global.document = dom.window.document;
+  global.window = dom.window;
+  const s = state();
+  s.activeTab = "inactive";
+  s.activityEntries = {
+    "1": {
+      id: "1",
+      handle: "alice",
+      state: "known",
+      lastTweetAt: 0,
+      checkedAt: Date.now(),
+      source: "show",
+    },
+  };
+  s.activity = {
+    ...s.activity,
+    status: "scanning",
+    checked: 1,
+    total: 1,
+    inactive: 0,
+    current: "alice",
+    source: "show",
+  };
+  const ui = mountUI({ state: s });
+  const root = dom.window.document.getElementById("ux-app");
+  assert.equal(root.querySelector("[data-activity-source]").textContent, "Profile");
+  ui.destroy();
+});
+
 test("activity pause updates the heading, dot, and toggle live", () => {
   const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>");
   global.document = dom.window.document;

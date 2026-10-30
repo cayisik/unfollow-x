@@ -302,13 +302,20 @@ export function buildLookupRequest({
 
 export function buildShowUserRequest({
   userId = "",
+  screenName = "",
   csrf = "",
   origin = "",
 } = {}) {
   const id = String(userId || "").trim();
-  if (!id) throw makeError("format", "show requires user_id");
+  const handle = String(screenName || "")
+    .trim()
+    .replace(/^@/, "");
+  if (!id && !handle) {
+    throw makeError("format", "show requires user_id or screen_name");
+  }
   const url = new URL("/i/api/1.1/users/show.json", originOf(origin));
-  url.searchParams.set("user_id", id);
+  if (id) url.searchParams.set("user_id", id);
+  else url.searchParams.set("screen_name", handle);
   url.searchParams.set("include_entities", "true");
   url.searchParams.set("tweet_mode", "extended");
   return {
@@ -778,13 +785,25 @@ export async function runActivityScan(options = {}) {
       await graphqlUser(user);
       return;
     }
-    if (!user.id) {
+    let request;
+    try {
+      request = user.id
+        ? buildShowUserRequest({ userId: user.id, csrf, origin })
+        : buildShowUserRequest({ screenName: user.handle, csrf, origin });
+    } catch (error) {
+      if (error.kind !== "format") throw error;
       showMode = false;
       currentSource = "graphql";
+      onProgress({
+        kind: "fallback",
+        to: "graphql",
+        reason: error.message,
+        checked,
+        total,
+      });
       await graphqlUser(user);
       return;
     }
-    const request = buildShowUserRequest({ userId: user.id, csrf, origin });
     await pace();
     let json;
     try {
@@ -794,7 +813,7 @@ export async function runActivityScan(options = {}) {
         sleepFn,
       });
     } catch (error) {
-      if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
+      if (Number(error.status) === 403 && isUserLevelGraphqlError(error)) {
         processEntry(user, {
           state: "unknown",
           reason: "unavailable",
@@ -813,6 +832,14 @@ export async function runActivityScan(options = {}) {
           total,
         });
         await graphqlUser(user);
+        return;
+      }
+      if (error.kind !== "rate" && isUserLevelGraphqlError(error)) {
+        processEntry(user, {
+          state: "unknown",
+          reason: "unavailable",
+          source: "show",
+        });
         return;
       }
       throw error;

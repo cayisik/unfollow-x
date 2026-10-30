@@ -104,7 +104,7 @@ Panel görünmezse x.com üzerinde olduğunu kontrol et ve Console'da hata olup 
 - **Aktivite taramasını başlat** takip ettiğin tüm hesapları kontrol eder. Tarama otomatik başlamaz.
 - X'in toplu kullanıcı kontrolü 10 hesap/istek olarak yapılır; istekler arasında 1,5–2,5 saniye beklenir ve her 10 istekte yaklaşık 10 saniye duraklanır.
 - Toplu kontrol kullanılamazsa hesap başına `users/show` sorgusuna geçilir; bu da kullanılamıyor veya belirsizse hesap başına `UserTweetsAndReplies` sorgusu kullanılır. İki yol da daha yavaştır ve arayüzde **Profil** etiketiyle gösterilir.
-- Birkaç bilinen `UserTweetsAndReplies` sorgu kimliği vazgeçmeden önce sırayla denenir. Bir profilin Yanıtlar sekmesini açmak canlı sorguyu yakaladığı için hâlâ en güvenilir yoldur.
+- Birkaç bilinen `UserTweetsAndReplies` sorgu kimliği yalnızca canlı bir istek yakalanamadığında denenir; yakalanan şablon olduğu gibi kullanılır. Bir profilin Yanıtlar sekmesini açmak canlı sorguyu yakaladığı için hâlâ en güvenilir yoldur.
 - Pasiflik penceresinde gönderi, retweet veya yanıt yoksa hesap pasiftir. Pencere Ayarlar'dan **1–365 gün** arasında yapılandırılabilir (varsayılan **30**). Hiç gönderisi olmayanlar da pasif sayılır.
 - Veri okunamayan hesaplar pasif sayılmaz; **Kontrol edilemedi** bölümünde gösterilir ve takipten çıkarılamaz.
 - Pasif sekmeden takipten çıkarma aynı güvenli kuyruğu kullanır. Seçilenler arasında seni takip eden varsa onay penceresi uyarır.
@@ -302,7 +302,7 @@ Otomatik test paketi gerçek tarayıcı testinin yerini tutmaz. X'in canlı ön 
 - Yeniden yüklemeden sonra devam etmek, yakalanan sayfalama imleci yedek şablonla yeniden kullanılamıyorsa baştan tarayabilir. Birleştirme yinelenenleri ayıklar, bu yüzden daha yavaş ama güvenlidir.
 - Araç masaüstü odaklıdır. Mobil düzenler ve olağandışı X denemeleri garanti edilmez.
 - Toplu otomasyon doğası gereği risklidir. Varsayılanlar temkinlidir, garanti değildir.
-- Aktivite kontrolü X'in `users/lookup` ucuna ve yedek olarak `UserTweetsAndReplies` sorgusuna bağlıdır; X bunları haber vermeden değiştirebilir.
+- Aktivite kontrolü X'in `users/lookup`, `users/show` ve `UserTweetsAndReplies` uçlarına bağlıdır; X bunlardan herhangi birini haber vermeden değiştirebilir.
 - Son gönderi zamanı yalnızca gönderi/retweet/yanıtı kapsar; beğeni veya yalnızca oturum açma aktivite sayılmaz.
 - 10.000 hesap için toplu modda bile tarama uzun sürebilir; ilerleme, cache ve devam desteği vardır.
 
