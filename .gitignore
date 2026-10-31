@@ -6,3 +6,7 @@ npm-debug.log*
 .env
 .env.*
 coverage/
+
+# Local agent/superpowers artifacts
+docs/superpowers/
+.superpowers/
